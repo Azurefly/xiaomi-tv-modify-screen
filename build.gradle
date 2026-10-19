@@ -1,0 +1,4 @@
+// Copyright (C) 2026 小狗便利店投屏 contributors
+// SPDX-License-Identifier: GPL-3.0-only
+
+plugins { id 'com.android.application' version '8.11.1' apply false }
