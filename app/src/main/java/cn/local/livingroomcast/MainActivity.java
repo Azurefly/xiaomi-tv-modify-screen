@@ -28,8 +28,14 @@ public final class MainActivity extends Activity {
     private Button pause, qualityButton;
     private AlertDialog modalDialog;
     private int qualityDialogSession = -1;
-    private String lastStatus = "";
-    private final Runnable hideHud = () -> { if (modalDialog == null && service != null && service.player().isPlaying()) hud.setVisibility(View.GONE); };
+    private static final long HUD_TIMEOUT_MS = 2000;
+    private boolean hudRequested;
+    private int displayedSession = -1;
+    private final Runnable hideHud = () -> {
+        if(modalDialog!=null)return;
+        hudRequested=false;
+        if(service!=null && service.player().isPlaying() && service.ui().error().isEmpty() && service.player().getPlayerError()==null)hud.setVisibility(View.GONE);
+    };
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             service = ((ReceiverService.LocalBinder)binder).get(); playerView.setPlayer(service.player()); service.observe(MainActivity.this::render);
@@ -46,7 +52,7 @@ public final class MainActivity extends Activity {
 
         waiting = column(); waiting.setPadding(dp(48),dp(25),dp(48),dp(22));
         root.addView(waiting,new FrameLayout.LayoutParams(-1,-1));
-        TextView eyebrow = text("LIVING ROOM  /  直播接收验证 0.1.4",12,MINT); eyebrow.setLetterSpacing(.10f); waiting.addView(eyebrow);
+        TextView eyebrow = text("LIVING ROOM  /  直播接收验证 0.1.5",12,MINT); eyebrow.setLetterSpacing(.10f); waiting.addView(eyebrow);
         TextView title = text("小狗便利店投屏",36,WHITE); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); add(waiting,title,12);
         TextView instruction = text("在平板的软件中点TV/投屏，选择“小狗便利店投屏”",19,WHITE); add(waiting,instruction,9);
         network = text("正在检查电视网络…",14,MUTED); add(waiting,network,13);
@@ -100,13 +106,27 @@ public final class MainActivity extends Activity {
         playbackQuality.setText("当前画质  " + ui.quality() + "    ·    " + ui.qualityMode());
         boolean changed=video!=ui.video(); video=ui.video();
         waiting.setVisibility(video?View.GONE:View.VISIBLE);
+        boolean newSession=changed || displayedSession!=ui.mediaGeneration();
+        if(newSession) { hudRequested=false; handler.removeCallbacks(hideHud); }
+        displayedSession=ui.mediaGeneration();
         if(video) {
-            if(changed || !lastStatus.equals(ui.status())) { showHud(); pause.requestFocus(); }
-            if(!service.player().isPlaying()) { handler.removeCallbacks(hideHud); hud.setVisibility(View.VISIBLE); }
+            if(newSession) { hud.setVisibility(View.VISIBLE); pause.requestFocus(); }
+            boolean playing=service.player().isPlaying();
+            boolean paused=service.player().getPlaybackState()==androidx.media3.common.Player.STATE_READY && !service.player().getPlayWhenReady();
+            boolean attention=paused || !ui.error().isEmpty() || service.player().getPlayerError()!=null
+                    || service.player().getPlaybackState()==androidx.media3.common.Player.STATE_ENDED;
+            if(attention)hud.setVisibility(View.VISIBLE);
+            else if(playing && !hudRequested && modalDialog==null) {
+                // A successful cast should reveal the video immediately, without a status overlay.
+                handler.removeCallbacks(hideHud);hud.setVisibility(View.GONE);
+            }
         } else { hud.setVisibility(View.GONE); if(changed)waiting.getChildAt(waiting.getChildCount()-2).requestFocus(); }
-        lastStatus=ui.status();
     }
-    private void showHud() { if(!video)return; hud.setVisibility(View.VISIBLE); handler.removeCallbacks(hideHud); if(modalDialog==null)handler.postDelayed(hideHud,6000); }
+    private void showHud() {
+        if(!video)return;
+        hudRequested=true;hud.setVisibility(View.VISIBLE);handler.removeCallbacks(hideHud);
+        if(modalDialog==null)handler.postDelayed(hideHud,HUD_TIMEOUT_MS);
+    }
     private void quality() {
         if(service==null || modalDialog!=null)return;
         handler.removeCallbacks(hideHud);
@@ -132,7 +152,13 @@ public final class MainActivity extends Activity {
             }).setNegativeButton("取消",(d,w)->{});
         }
         AlertDialog dialog=builder.create();modalDialog=dialog;qualityDialogSession=menu.generation();
-        dialog.setOnDismissListener(d->{if(modalDialog==dialog){modalDialog=null;qualityDialogSession=-1;}showHud();if(video)qualityButton.requestFocus();});
+        dialog.setOnDismissListener(d->{
+            if(modalDialog!=dialog)return;
+            modalDialog=null;qualityDialogSession=-1;
+            if(service!=null && video && service.ui().mediaGeneration()==menu.generation()) {
+                showHud();qualityButton.requestFocus();
+            } else render();
+        });
         dialog.show();dialog.getWindow().setLayout(dp(620),-2);
     }
     private void details() {
@@ -140,7 +166,7 @@ public final class MainActivity extends Activity {
         String message="等待接收服务启动。";
         if(service!=null) {
             ReceiverService.Ui u=service.ui();
-            message="小狗便利店投屏 0.1.4-test\n电视：" + Build.MANUFACTURER + " " + Build.MODEL + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT
+            message="小狗便利店投屏 0.1.5-test\n电视：" + Build.MANUFACTURER + " " + Build.MODEL + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT
                     + "\n接收器：" + (u.endpoint().isEmpty()?"尚未就绪":u.endpoint())
                     + "\n当前画质：" + u.quality() + " · " + u.qualityMode()
                     + "\n收到地址：" + u.received() + " 次\n本次连接：" + u.elapsed()

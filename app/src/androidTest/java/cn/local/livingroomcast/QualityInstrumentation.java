@@ -7,6 +7,7 @@ import android.content.*;
 import android.graphics.Bitmap;
 import android.os.*;
 import android.view.KeyEvent;
+import android.view.View;
 import android.view.accessibility.AccessibilityNodeInfo;
 import cn.local.livingroomcast.core.Dlna;
 import java.io.*;
@@ -33,6 +34,18 @@ public final class QualityInstrumentation extends Instrumentation {
         long end=System.currentTimeMillis()+45000;
         while(System.currentTimeMillis()<end){if(test.getAsBoolean()){check(message,true);return;}Thread.sleep(200);}
         throw new AssertionError(message+"; actual="+ui(()->service.ui().quality()));
+    }
+    private boolean controlsVisible() {
+        return ui(()->{
+            ArrayList<View> views=new ArrayList<>();
+            activity.getWindow().getDecorView().findViewsWithText(views,"暂停 / 继续",View.FIND_VIEWS_WITH_TEXT);
+            return views.stream().anyMatch(View::isShown);
+        });
+    }
+    private void hiddenFor(String message,long duration)throws Exception {
+        long end=SystemClock.elapsedRealtime()+duration;
+        while(SystemClock.elapsedRealtime()<end){if(controlsVisible())throw new AssertionError(message);Thread.sleep(100);}
+        check(message,true);
     }
     private void source(String path)throws Exception {
         service.action(Dlna.AV,"SetAVTransportURI",Dlna.values("InstanceID","0","CurrentURI","http://10.0.2.2:18099/"+path,"CurrentURIMetaData",""));
@@ -71,7 +84,17 @@ public final class QualityInstrumentation extends Instrumentation {
             await("adaptive source exposes actual selectable resolutions",()->ui(()->service.qualityMenu().choices().size()>=3));
             await("decoder reports actual resolution",()->ui(()->service.player().isPlaying() && !service.ui().quality().equals("正在识别…")));
             check("new session defaults to auto",ui(()->service.qualityMenu().selectedKey().isEmpty()));
-            openMenu();shot("清晰度菜单.png");
+            check("successful playback immediately hides the overlay",!controlsVisible());
+            hiddenFor("periodic updates do not reopen the overlay",2300);
+            shot("播放成功-无遮挡.png");
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);Thread.sleep(100);
+            check("direction key reveals the controls",controlsVisible());
+            Thread.sleep(1200);sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT);Thread.sleep(1200);
+            check("remote interaction restarts the two-second timeout",controlsVisible());
+            Thread.sleep(1100);check("manually opened overlay hides after two seconds",!controlsVisible());
+            openMenu();Thread.sleep(2300);
+            check("quality dialog remains open beyond the HUD timeout",getUiAutomation().getRootInActiveWindow().findAccessibilityNodeInfosByText("自动 · 随网络调整").size()>0);
+            shot("清晰度菜单.png");
             check("native 360p menu row selects a real track",tap("360p · 640×360"));
             await("actual decoded size reaches selected 360p",()->ui(()->service.ui().quality().equals("640×360")));
             check("manual choice is recorded separately from actual size",ui(()->service.qualityMenu().selectedKey().equals("640x360")));
@@ -80,7 +103,10 @@ public final class QualityInstrumentation extends Instrumentation {
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);Thread.sleep(200);shot("实际画质-1080p.png");
             ui(()->{service.togglePause();return null;});
             check("pause preserves resolution choice",ui(()->service.qualityMenu().selectedKey().equals("1920x1080")));
+            Thread.sleep(2300);check("pause keeps useful controls visible",controlsVisible());
             ui(()->{service.togglePause();return null;});
+            await("resume reaches playback",()->ui(()->service.player().isPlaying()));
+            check("sender resume hides the paused overlay immediately",!controlsVisible());
             var with4k=ui(()->service.qualityMenu());
             boolean supports4k=with4k.choices().stream().anyMatch(c->c.key().equals("3840x2160"));
             if(supports4k){
@@ -94,12 +120,16 @@ public final class QualityInstrumentation extends Instrumentation {
             check("manual choice accepted for current session",ui(()->service.selectQuality(before.generation(),"640x360")));
             openMenu();source("360/index.m3u8");
             await("new fixed source exposes one real resolution",()->ui(()->service.qualityMenu().choices().size()==1));
-            await("fixed source reports actual 360p",()->ui(()->service.ui().quality().equals("640×360")));
+            await("fixed source reports actual 360p",()->ui(()->service.player().isPlaying() && service.ui().quality().equals("640×360")));
             check("new source resets to auto",ui(()->service.qualityMenu().selectedKey().isEmpty()));
+            check("new cast also hides its startup overlay",!controlsVisible());
             check("stale dialog session cannot override new video",!ui(()->service.selectQuality(before.generation(),"1920x1080")));
             openMenu();Thread.sleep(200);shot("固定片源提示.png");
             check("single-quality explanation is visible",getUiAutomation().getRootInActiveWindow().findAccessibilityNodeInfosByText("当前片源仅提供一个电视可播放的画质档位").size()>0);
             sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
+            source("missing.m3u8");
+            await("failed source exposes an error",()->ui(()->!service.ui().error().isEmpty()));
+            Thread.sleep(2300);check("playback error stays visible beyond the manual timeout",controlsVisible());
             ui(()->{service.stopPlayback();return null;});
             check("stop clears quality and returns waiting state",ui(()->!service.ui().video() && service.qualityMenu().selectedKey().isEmpty()));
             result.putString("stream",String.join("\n",checks)+"\nQUALITY_ANDROID_OK: "+checks.size()+" checks; 4K="+supports4k+"\n");
