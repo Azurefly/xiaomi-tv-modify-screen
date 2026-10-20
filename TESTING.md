@@ -41,3 +41,31 @@ python3 tests/test_format_probe.py
 ## 截图
 
 README 中的等待页为 0.1.3-test 在 1920×1080 安卓模拟器上的实际截图。IP 地址为模拟器地址，不是真实家庭设备地址。
+
+## 0.1.4-test 画质控制 · 2026-10-20
+
+- 构建、Android Lint 通过；8 项档位模型检查、29 项协议检查、10 项格式识别检查通过。
+- 原生安卓回归 26 项通过：实际解码尺寸、遥控器入口、360p / 1080p 切换、暂停保留选择、4K 档位与 3840×2160 解码、恢复自动、固定片源提示、新投屏重置、过期会话拒绝及停止清理。
+- 测试环境为 Android 11 / API 30 ARM64 模拟器；画面是合成纯色 H.264，2fps，非真实直播节目。4K 解码不代表在索尼真机上验证了 4K / 60fps 或 HDR。
+- 真实 Z视介、小红书、抖音是否提供多分辨率投屏地址仍待用户复测。
+
+### 重现原生画质回归
+
+需要 Android Emulator、ADB、Python 3 和系统 FFmpeg（带 libx264）。生成测试素材的工具和测试 runner 均在仓库中，素材不入库。
+
+```sh
+python3 tests/make_quality_media.py .test-media
+python3 -m http.server 18099 --bind 127.0.0.1 --directory .test-media
+```
+
+保持上述媒体服务运行，在另一个终端完成本地签名生成与应用构建，再编译测试程序：
+
+```sh
+bash build-local.sh
+./gradlew assembleDebugAndroidTest
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb shell am instrument -w cn.local.livingroomcast.test/cn.local.livingroomcast.QualityInstrumentation
+```
+
+此 runner 使用 Android Emulator 的 10.0.2.2 访问宿主媒体服务；不是可直接用于真实电视的测试脚本。只连接一个测试模拟器，或用 adb -s 指定目标。模拟器需联网；历史 1920×1080 / density 320 配置中已完成遥控器与截图检查。若测试设备不支持给定 4K 格式，该档位应被过滤，runner 将跳过 4K 解码断言并记录结果。

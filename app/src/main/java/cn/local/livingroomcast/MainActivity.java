@@ -24,10 +24,12 @@ public final class MainActivity extends Activity {
     private boolean bound, video;
     private PlayerView playerView;
     private LinearLayout waiting, hud;
-    private TextView status, network, progress, playbackTitle, playbackStatus, playbackTime;
-    private Button pause;
+    private TextView status, network, progress, playbackTitle, playbackStatus, playbackTime, playbackQuality;
+    private Button pause, qualityButton;
+    private AlertDialog modalDialog;
+    private int qualityDialogSession = -1;
     private String lastStatus = "";
-    private final Runnable hideHud = () -> { if (service != null && service.player().isPlaying()) hud.setVisibility(View.GONE); };
+    private final Runnable hideHud = () -> { if (modalDialog == null && service != null && service.player().isPlaying()) hud.setVisibility(View.GONE); };
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             service = ((ReceiverService.LocalBinder)binder).get(); playerView.setPlayer(service.player()); service.observe(MainActivity.this::render);
@@ -44,7 +46,7 @@ public final class MainActivity extends Activity {
 
         waiting = column(); waiting.setPadding(dp(48),dp(25),dp(48),dp(22));
         root.addView(waiting,new FrameLayout.LayoutParams(-1,-1));
-        TextView eyebrow = text("LIVING ROOM  /  直播接收验证 0.1.3",12,MINT); eyebrow.setLetterSpacing(.10f); waiting.addView(eyebrow);
+        TextView eyebrow = text("LIVING ROOM  /  直播接收验证 0.1.4",12,MINT); eyebrow.setLetterSpacing(.10f); waiting.addView(eyebrow);
         TextView title = text("小狗便利店投屏",36,WHITE); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); add(waiting,title,12);
         TextView instruction = text("在平板的软件中点TV/投屏，选择“小狗便利店投屏”",19,WHITE); add(waiting,instruction,9);
         network = text("正在检查电视网络…",14,MUTED); add(waiting,network,13);
@@ -65,9 +67,11 @@ public final class MainActivity extends Activity {
         playbackTitle=text("小狗便利店投屏",25,WHITE); playbackTitle.setMaxLines(2); hud.addView(playbackTitle);
         playbackStatus=text("正在连接直播",17,MINT); add(hud,playbackStatus,8);
         playbackTime=text("",13,MUTED); add(hud,playbackTime,6);
+        playbackQuality=text("当前画质  正在识别…",14,WHITE); add(hud,playbackQuality,6);
         hud.addView(new Space(this),new LinearLayout.LayoutParams(1,0,1));
         LinearLayout controls=new LinearLayout(this); controls.setOrientation(LinearLayout.HORIZONTAL);
         pause=button("暂停 / 继续",v->{if(service!=null)service.togglePause();showHud();}); controls.addView(pause);
+        qualityButton=button("清晰度",v->quality()); LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(-2,dp(48));qp.leftMargin=dp(12);controls.addView(qualityButton,qp);
         Button diagnostics=button("连接详情",v->details()); LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,dp(48)); cp.leftMargin=dp(12); controls.addView(diagnostics,cp);
         Button disconnect=button("结束投屏",v->{if(service!=null)service.stopPlayback();}); LinearLayout.LayoutParams dp=new LinearLayout.LayoutParams(-2,dp(48));dp.leftMargin=dp(12);controls.addView(disconnect,dp);
         hud.addView(controls); add(hud,text("方向键唤出操作栏 · 返回键结束本次播放",12,MUTED),10);
@@ -85,6 +89,7 @@ public final class MainActivity extends Activity {
     private void render() {
         if(service==null)return;
         ReceiverService.Ui ui=service.ui();
+        if (modalDialog != null && qualityDialogSession >= 0 && (!ui.video() || qualityDialogSession != ui.mediaGeneration())) modalDialog.dismiss();
         status.setText(ui.status());
         network.setText(ui.address().isEmpty()?"请连接家庭 Wi-Fi，或将电视接入同一路由器的网线。":"电视地址  " + ui.address() + "    ·    DLNA 接收");
         String summary = "已收到 " + ui.received() + " 次播放地址";
@@ -92,6 +97,7 @@ public final class MainActivity extends Activity {
         playbackTitle.setText(ui.title());
         playbackStatus.setText(ui.status() + (ui.error().isEmpty()?"":"\n" + ui.error()));
         playbackTime.setText("本次连接  " + ui.elapsed());
+        playbackQuality.setText("当前画质  " + ui.quality() + "    ·    " + ui.qualityMode());
         boolean changed=video!=ui.video(); video=ui.video();
         waiting.setVisibility(video?View.GONE:View.VISIBLE);
         if(video) {
@@ -100,21 +106,51 @@ public final class MainActivity extends Activity {
         } else { hud.setVisibility(View.GONE); if(changed)waiting.getChildAt(waiting.getChildCount()-2).requestFocus(); }
         lastStatus=ui.status();
     }
-    private void showHud() { if(!video)return; hud.setVisibility(View.VISIBLE); handler.removeCallbacks(hideHud); handler.postDelayed(hideHud,6000); }
+    private void showHud() { if(!video)return; hud.setVisibility(View.VISIBLE); handler.removeCallbacks(hideHud); if(modalDialog==null)handler.postDelayed(hideHud,6000); }
+    private void quality() {
+        if(service==null || modalDialog!=null)return;
+        handler.removeCallbacks(hideHud);
+        ReceiverService.QualityMenu menu=service.qualityMenu();
+        AlertDialog.Builder builder=new AlertDialog.Builder(this).setTitle("清晰度");
+        if(menu.choices().size()<2) {
+            String message=menu.loading()?"正在识别片源，开始播放后再查看清晰度。":
+                    menu.choices().isEmpty()?"当前内容没有可切换的视频画质。":
+                    "当前画质：" + service.ui().quality() + "\n\n当前片源仅提供一个电视可播放的画质档位，无法在这里切换。可尝试在平板 App 中调整清晰度后重新投屏。";
+            builder.setMessage(message).setPositiveButton("关闭",(d,w)->{});
+        } else {
+            String[] labels=new String[menu.choices().size()+1];labels[0]="自动 · 随网络调整";
+            int checked=0;
+            for(int i=0;i<menu.choices().size();i++) {
+                var choice=menu.choices().get(i);labels[i+1]=choice.label();
+                if(choice.key().equals(menu.selectedKey()))checked=i+1;
+            }
+            builder.setSingleChoiceItems(labels,checked,(d,which)->{
+                String key=which==0?"":menu.choices().get(which-1).key();
+                if(service==null || !service.selectQuality(menu.generation(),key))
+                    Toast.makeText(this,"片源已更新，请重新打开清晰度",Toast.LENGTH_SHORT).show();
+                d.dismiss();
+            }).setNegativeButton("取消",(d,w)->{});
+        }
+        AlertDialog dialog=builder.create();modalDialog=dialog;qualityDialogSession=menu.generation();
+        dialog.setOnDismissListener(d->{if(modalDialog==dialog){modalDialog=null;qualityDialogSession=-1;}showHud();if(video)qualityButton.requestFocus();});
+        dialog.show();dialog.getWindow().setLayout(dp(620),-2);
+    }
     private void details() {
         handler.removeCallbacks(hideHud);
         String message="等待接收服务启动。";
         if(service!=null) {
             ReceiverService.Ui u=service.ui();
-            message="小狗便利店投屏 0.1.3-test\n电视：" + Build.MANUFACTURER + " " + Build.MODEL + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT
+            message="小狗便利店投屏 0.1.4-test\n电视：" + Build.MANUFACTURER + " " + Build.MODEL + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT
                     + "\n接收器：" + (u.endpoint().isEmpty()?"尚未就绪":u.endpoint())
+                    + "\n当前画质：" + u.quality() + " · " + u.qualityMode()
                     + "\n收到地址：" + u.received() + " 次\n本次连接：" + u.elapsed()
                     + "\n\n排查顺序：\n1. 没收到搜索：检查同一网络、访客网络隔离。\n2. 能被搜索但没收到地址：可能存在发送端兼容限制。\n3. 已收到地址但不能播放：看下面错误代码。\n\n" + u.logs()
                     + "\n\n记录只保存在本次运行的内存中；不显示完整视频地址或登录信息。\n本地网页可打开只表示网络可达，实际投屏仍需测试。";
         }
         ScrollView scroll=new ScrollView(this); TextView content=text(message,14,WHITE); content.setPadding(dp(24),dp(12),dp(24),dp(20)); scroll.addView(content);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("连接详情").setView(scroll).setPositiveButton("关闭",(d,w)->showHud()).create();
-        dialog.setOnDismissListener(d->showHud()); dialog.show();
+        modalDialog=dialog;
+        dialog.setOnDismissListener(d->{if(modalDialog==dialog)modalDialog=null;showHud();}); dialog.show();
         dialog.getWindow().setLayout(dp(660),dp(390));
     }
     private void confirmExit() { new AlertDialog.Builder(this).setTitle("退出接收？").setMessage("退出后平板将无法发现本接收器。再次打开即可恢复。").setPositiveButton("退出",(d,w)->finish()).setNegativeButton("继续接收",null).show(); }
@@ -129,6 +165,7 @@ public final class MainActivity extends Activity {
         return super.onKeyDown(code,event);
     }
     @Override protected void onStop() {
+        if(modalDialog!=null)modalDialog.dismiss();
         handler.removeCallbacksAndMessages(null);
         playerView.setPlayer(null); if(service!=null)service.observe(null);
         if(bound){unbindService(connection);bound=false;}

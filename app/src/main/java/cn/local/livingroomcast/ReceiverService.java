@@ -44,6 +44,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
     private String address = "", endpoint = "", uuid, currentUri = "", metadata = "", title = "", mime = "";
     private String status = "正在启动接收服务", error = "", transportStatus = "OK";
     private Runnable observer;
+    private String selectedQuality = "";
     private int received, retries;
     private boolean desiredPlay, formatProbed, probing;
     private int mediaGeneration;
@@ -51,7 +52,8 @@ public final class ReceiverService extends Service implements Dlna.Controller {
     private long sessionStarted, playingSince;
     private Runnable pendingRetry;
     public final class LocalBinder extends Binder { ReceiverService get() { return ReceiverService.this; } }
-    public record Ui(String status, String error, String address, String endpoint, String title, int received, String logs, String elapsed, boolean video) {}
+    public record Ui(String status, String error, String address, String endpoint, String title, int received, String logs, String elapsed, boolean video, String quality, String qualityMode, int mediaGeneration) {}
+    public record QualityMenu(int generation, List<QualityCatalog.Choice> choices, String selectedKey, boolean loading) {}
 
     @Override public void onCreate() {
         super.onCreate(); alive = true;
@@ -85,6 +87,17 @@ public final class ReceiverService extends Service implements Dlna.Controller {
                 else playingSince = 0;
                 changed();
             }
+            @Override public void onTracksChanged(Tracks tracks) {
+                if (!selectedQuality.isEmpty() && !tracks.isEmpty()) {
+                    QualityCatalog.Choice choice = findQuality(selectedQuality);
+                    if (choice == null) {
+                        resetQuality();
+                        log("片源画质已更新，恢复自动选择");
+                    } else applyQuality(choice);
+                }
+                changed();
+            }
+            @Override public void onVideoSizeChanged(VideoSize videoSize) { changed(); }
             @Override public void onPlayerError(PlaybackException e) {
                 playingSince = 0;
                 int response = responseCode(e);
@@ -220,7 +233,8 @@ public final class ReceiverService extends Service implements Dlna.Controller {
                 try { parsed = new URI(uri); if(!List.of("http","https").contains(parsed.getScheme()) || parsed.getHost() == null || parsed.getUserInfo() != null) throw new IllegalArgumentException(); }
                 catch (Exception e) { throw new Dlna.Fault(714,"Only HTTP(S) media supported"); }
                 cancelRetry(); cancelFormatProbe(); retries = 0; formatProbed = false; sessionStarted = 0; playingSince = 0; desiredPlay = false;
-                player.stop(); player.clearMediaItems();
+                selectedQuality = "";
+                player.stop(); player.clearMediaItems(); resetQuality();
                 currentUri = uri; metadata = args.getOrDefault("CurrentURIMetaData", "");
                 String declared = MediaProbe.mime(Xml.resourceMime(metadata)); mime = MediaProbe.initialMime(uri,declared);
                 title = Xml.first(metadata, "title"); if (title.isBlank()) title = "小狗便利店投屏";
@@ -328,7 +342,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         return 0;
     }
     public void stopPlayback() {
-        desiredPlay=false; cancelRetry(); cancelFormatProbe(); player.stop(); player.clearMediaItems(); currentUri=""; metadata=""; title=""; mime="";
+        desiredPlay=false; cancelRetry(); cancelFormatProbe(); selectedQuality=""; player.stop(); player.clearMediaItems(); resetQuality(); currentUri=""; metadata=""; title=""; mime="";
         error=""; transportStatus="OK"; sessionStarted=0; playingSince=0; status=endpoint.isEmpty()?"接收服务未就绪":"等待平板投屏"; foreground(false); log("已结束播放，等待下一次投屏"); changed();
     }
     public void togglePause() {
@@ -336,9 +350,68 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         try { dispatch(Dlna.AV,desiredPlay?"Pause":"Play",Dlna.values("InstanceID","0","Speed","1")); } catch(Exception ignored) { }
     }
     public void reconnect() { if(currentUri.isEmpty())return; retries=0; desiredPlay=true; cancelRetry(); prepareCurrent(); }
+    public QualityMenu qualityMenu() {
+        return new QualityMenu(mediaGeneration, qualityChoices(), selectedQuality, player.getCurrentTracks().isEmpty());
+    }
+    private List<QualityCatalog.Choice> qualityChoices() {
+        List<QualityCatalog.Track> tracks = new ArrayList<>();
+        List<Tracks.Group> groups = player.getCurrentTracks().getGroups();
+        for (int g = 0; g < groups.size(); g++) {
+            Tracks.Group group = groups.get(g);
+            if (group.getType() != C.TRACK_TYPE_VIDEO) continue;
+            for (int i = 0; i < group.length; i++) {
+                Format format = group.getTrackFormat(i);
+                tracks.add(new QualityCatalog.Track(g, i, format.width, format.height, group.isTrackSupported(i), group.isSelected()));
+            }
+        }
+        return QualityCatalog.from(tracks);
+    }
+    private QualityCatalog.Choice findQuality(String key) {
+        for (QualityCatalog.Choice choice : qualityChoices()) if (choice.key().equals(key)) return choice;
+        return null;
+    }
+    public boolean selectQuality(int session, String key) {
+        if (session != mediaGeneration || currentUri.isEmpty()) return false;
+        if (key.isEmpty()) {
+            resetQuality(); log("清晰度已设为自动"); changed(); return true;
+        }
+        QualityCatalog.Choice choice = findQuality(key);
+        if (choice == null) return false;
+        selectedQuality = key;
+        applyQuality(choice);
+        log("已选择清晰度：" + choice.label()); changed(); return true;
+    }
+    private void applyQuality(QualityCatalog.Choice choice) {
+        int groupIndex = choice.preferredGroup();
+        Tracks.Group group = player.getCurrentTracks().getGroups().get(groupIndex);
+        TrackSelectionOverride override = new TrackSelectionOverride(group.getMediaTrackGroup(), choice.indices(groupIndex));
+        if (override.equals(player.getTrackSelectionParameters().overrides.get(override.mediaTrackGroup))) return;
+        // An explicit supported source track may exceed the TV's 1080p UI viewport.
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+                .setOverrideForType(override).build());
+    }
+    private void resetQuality() {
+        selectedQuality = "";
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_VIDEO).build());
+    }
+    private String actualQuality() {
+        // This reports decoder input size, not the requested track or UI/screen size.
+        Format format = player.getVideoFormat();
+        if (currentUri.isEmpty() || player.getPlaybackState() == Player.STATE_IDLE || format == null || format.width <= 0 || format.height <= 0) return "正在识别…";
+        return format.width + "×" + format.height;
+    }
+    private String qualityMode() {
+        if (selectedQuality.isEmpty()) return "自动";
+        QualityCatalog.Choice choice = findQuality(selectedQuality);
+        if (choice == null) return "自动";
+        Format actual = player.getVideoFormat();
+        return actual != null && actual.width == choice.width() && actual.height == choice.height()
+                ? "手动" : "正在切换至 " + choice.label();
+    }
     public ExoPlayer player() { return player; }
     public void observe(Runnable value) { observer=value; if(value!=null)value.run(); }
-    public Ui ui() { return new Ui(status,error,address,endpoint,title,received,String.join("\n",history),sessionStarted==0?"00:00:00":Dlna.time(SystemClock.elapsedRealtime()-sessionStarted),!currentUri.isEmpty()); }
+    public Ui ui() { return new Ui(status,error,address,endpoint,title,received,String.join("\n",history),sessionStarted==0?"00:00:00":Dlna.time(SystemClock.elapsedRealtime()-sessionStarted),!currentUri.isEmpty(),actualQuality(),qualityMode(),mediaGeneration); }
     private void changed() { if(observer!=null) observer.run(); HttpServer server=http; if(server!=null)server.publish(); }
     private void log(String value) {
         if(Looper.myLooper()!=main.getLooper()){main.post(()->log(value));return;}
