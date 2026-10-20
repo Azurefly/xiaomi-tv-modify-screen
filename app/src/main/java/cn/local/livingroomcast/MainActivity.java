@@ -12,6 +12,8 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.*;
+import android.provider.Settings;
+import android.net.Uri;
 import android.view.*;
 import android.widget.*;
 import androidx.media3.ui.PlayerView;
@@ -52,7 +54,7 @@ public final class MainActivity extends Activity {
 
         waiting = column(); waiting.setPadding(dp(48),dp(25),dp(48),dp(22));
         root.addView(waiting,new FrameLayout.LayoutParams(-1,-1));
-        TextView eyebrow = text("LIVING ROOM  /  直播接收验证 0.1.5",12,MINT); eyebrow.setLetterSpacing(.10f); waiting.addView(eyebrow);
+        TextView eyebrow = text("LIVING ROOM  /  直播接收验证 0.1.6",12,MINT); eyebrow.setLetterSpacing(.10f); waiting.addView(eyebrow);
         TextView title = text("小狗便利店投屏",36,WHITE); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); add(waiting,title,12);
         TextView instruction = text("在平板的软件中点TV/投屏，选择“小狗便利店投屏”",19,WHITE); add(waiting,instruction,9);
         network = text("正在检查电视网络…",14,MUTED); add(waiting,network,13);
@@ -63,10 +65,11 @@ public final class MainActivity extends Activity {
         add(waiting,card,18);
         Space space = new Space(this); waiting.addView(space,new LinearLayout.LayoutParams(1,0,1));
         LinearLayout buttons = new LinearLayout(this); buttons.setOrientation(LinearLayout.HORIZONTAL);
-        Button details=button("连接详情",v->details()); buttons.addView(details);
+        Button standby=button("后台待机",v->standby()); buttons.addView(standby);
+        Button details=button("连接详情",v->details()); LinearLayout.LayoutParams detailParams=new LinearLayout.LayoutParams(-2,dp(48)); detailParams.leftMargin=dp(12); buttons.addView(details,detailParams);
         Button exit=button("退出接收",v->confirmExit()); LinearLayout.LayoutParams exitParams=new LinearLayout.LayoutParams(-2,dp(48)); exitParams.leftMargin=dp(12); buttons.addView(exit,exitParams);
         waiting.addView(buttons);
-        TextView note=text("测试时请保持本应用打开。按返回键结束播放，再按返回可退出接收。",12,MUTED); add(waiting,note,8);
+        TextView note=text("按 Home 可后台待机；“退出接收”会停止服务。自动打开新投屏可在“后台待机”中授权。",12,MUTED); add(waiting,note,8);
 
         hud=column(); hud.setPadding(dp(36),dp(24),dp(36),dp(24)); hud.setBackgroundColor(0x99081016);
         root.addView(hud,new FrameLayout.LayoutParams(-1,-1)); hud.setVisibility(View.GONE);
@@ -94,6 +97,7 @@ public final class MainActivity extends Activity {
     }
     private void render() {
         if(service==null)return;
+        if(service.isShuttingDown()) { finish(); return; }
         ReceiverService.Ui ui=service.ui();
         if (modalDialog != null && qualityDialogSession >= 0 && (!ui.video() || qualityDialogSession != ui.mediaGeneration())) modalDialog.dismiss();
         status.setText(ui.status());
@@ -166,7 +170,7 @@ public final class MainActivity extends Activity {
         String message="等待接收服务启动。";
         if(service!=null) {
             ReceiverService.Ui u=service.ui();
-            message="小狗便利店投屏 0.1.5-test\n电视：" + Build.MANUFACTURER + " " + Build.MODEL + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT
+            message="小狗便利店投屏 0.1.6-test\n电视：" + Build.MANUFACTURER + " " + Build.MODEL + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT
                     + "\n接收器：" + (u.endpoint().isEmpty()?"尚未就绪":u.endpoint())
                     + "\n当前画质：" + u.quality() + " · " + u.qualityMode()
                     + "\n收到地址：" + u.received() + " 次\n本次连接：" + u.elapsed()
@@ -179,9 +183,30 @@ public final class MainActivity extends Activity {
         dialog.setOnDismissListener(d->{if(modalDialog==dialog)modalDialog=null;showHud();}); dialog.show();
         dialog.getWindow().setLayout(dp(660),dp(390));
     }
-    private void confirmExit() { new AlertDialog.Builder(this).setTitle("退出接收？").setMessage("退出后平板将无法发现本接收器。再次打开即可恢复。").setPositiveButton("退出",(d,w)->finish()).setNegativeButton("继续接收",null).show(); }
+    private void exitReceiver() {
+        if(service!=null)service.shutdown();
+        else stopService(new Intent(this,ReceiverService.class));
+        finish();
+    }
+    private void confirmExit() { new AlertDialog.Builder(this).setTitle("退出接收？").setMessage("将停止后台待机，平板无法再发现本接收器。再次打开即可恢复。").setPositiveButton("退出",(d,w)->exitReceiver()).setNegativeButton("继续接收",null).show(); }
+    private void standby() {
+        boolean allowed=Build.VERSION.SDK_INT<29 || Settings.canDrawOverlays(this);
+        AlertDialog.Builder dialog=new AlertDialog.Builder(this).setTitle("后台待机")
+                .setMessage(allowed?"回到桌面后仍可接收投屏，新投屏会尝试自动打开播放界面。电视关机、重启或系统强行停止后，需要重新打开本应用。":
+                    "回到桌面后仍可被平板发现。允许“显示在其他应用上层”后，新投屏可自动打开播放界面；不允许时，收到视频后需手动打开本应用播放。此权限不用于显示悬浮窗。")
+                .setNegativeButton("取消",null);
+        if(allowed)dialog.setPositiveButton("进入后台",(d,w)->moveTaskToBack(true));
+        else dialog.setPositiveButton("去授权",(d,w)->{
+            try { startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName()))); }
+            catch(ActivityNotFoundException e) {
+                try { startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)); }
+                catch(ActivityNotFoundException unavailable) { Toast.makeText(this,"本机未提供此授权入口，可在系统应用设置中查找；也可手动打开本应用播放。",Toast.LENGTH_LONG).show(); }
+            }
+        }).setNeutralButton("直接后台等待",(d,w)->moveTaskToBack(true));
+        dialog.show();
+    }
     @Override public boolean onKeyDown(int code,KeyEvent event) {
-        if(code==KeyEvent.KEYCODE_BACK){if(service!=null && service.ui().video())service.stopPlayback();else confirmExit();return true;}
+        if(code==KeyEvent.KEYCODE_BACK){if(service!=null && service.ui().video())service.stopPlayback();else standby();return true;}
         if(video && (code==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || code==KeyEvent.KEYCODE_MEDIA_PAUSE || code==KeyEvent.KEYCODE_MEDIA_PLAY)) {
             if(service!=null)service.togglePause();showHud();return true;
         }
@@ -196,7 +221,6 @@ public final class MainActivity extends Activity {
         playerView.setPlayer(null); if(service!=null)service.observe(null);
         if(bound){unbindService(connection);bound=false;}
         service=null;
-        if(!isChangingConfigurations())stopService(new Intent(this,ReceiverService.class));
         super.onStop();
     }
     private LinearLayout column(){LinearLayout view=new LinearLayout(this);view.setOrientation(LinearLayout.VERTICAL);return view;}

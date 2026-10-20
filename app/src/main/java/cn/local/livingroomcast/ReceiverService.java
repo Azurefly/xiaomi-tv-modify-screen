@@ -12,6 +12,7 @@ import android.media.AudioManager;
 import android.net.*;
 import android.net.wifi.WifiManager;
 import android.os.*;
+import android.provider.Settings;
 import androidx.media3.common.*;
 import androidx.media3.datasource.*;
 import androidx.media3.exoplayer.*;
@@ -46,7 +47,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
     private Runnable observer;
     private String selectedQuality = "";
     private int received, retries;
-    private boolean desiredPlay, formatProbed, probing;
+    private boolean desiredPlay, formatProbed, probing, pendingPresentation, shuttingDown;
     private int mediaGeneration;
     private Future<?> formatJob;
     private long sessionStarted, playingSince;
@@ -129,11 +130,14 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         refreshNetwork(); main.postDelayed(tick, 1000);
     }
     private void foreground(boolean playing) {
-        Intent open = new Intent(this, MainActivity.class);
+        Intent open = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pending = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, "receiver") : new Notification.Builder(this);
-        Notification notification = builder.setContentTitle("小狗便利店投屏").setContentText(playing ? "正在接收视频" : "等待平板连接")
-                .setSmallIcon(R.drawable.app_icon).setContentIntent(pending).setOngoing(true).build();
+        Intent stop = new Intent(this, ReceiverService.class).setAction("cn.local.livingroomcast.STOP");
+        PendingIntent stopPending = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification notification = builder.setContentTitle("小狗便利店投屏").setContentText(pendingPresentation ? "已收到投屏，打开应用开始播放" : playing ? "正在接收视频" : "后台待机 · 等待平板连接")
+                .setSmallIcon(R.drawable.app_icon).setContentIntent(pending).setOngoing(true)
+                .addAction(new Notification.Action.Builder(null,"退出接收",stopPending).build()).build();
         if (Build.VERSION.SDK_INT >= 29) startForeground(NOTICE_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE | (playing ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK : 0));
         else startForeground(NOTICE_ID, notification);
     }
@@ -232,7 +236,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
                 URI parsed;
                 try { parsed = new URI(uri); if(!List.of("http","https").contains(parsed.getScheme()) || parsed.getHost() == null || parsed.getUserInfo() != null) throw new IllegalArgumentException(); }
                 catch (Exception e) { throw new Dlna.Fault(714,"Only HTTP(S) media supported"); }
-                cancelRetry(); cancelFormatProbe(); retries = 0; formatProbed = false; sessionStarted = 0; playingSince = 0; desiredPlay = false;
+                cancelRetry(); cancelFormatProbe(); retries = 0; formatProbed = false; sessionStarted = 0; playingSince = 0; desiredPlay = false; pendingPresentation = false;
                 selectedQuality = "";
                 player.stop(); player.clearMediaItems(); resetQuality();
                 currentUri = uri; metadata = args.getOrDefault("CurrentURIMetaData", "");
@@ -245,13 +249,15 @@ public final class ReceiverService extends Service implements Dlna.Controller {
             case "Play":
                 if (!"1".equals(args.get("Speed"))) throw new Dlna.Fault(717,"Only normal speed supported");
                 if(currentUri.isEmpty()) throw new Dlna.Fault(701,"No media");
-                desiredPlay = true; foreground(true);
+                desiredPlay = true;
+                if (!ensurePresentation()) break;
+                foreground(true);
                 if (player.getMediaItemCount() == 0 || player.getPlaybackState() == Player.STATE_IDLE || player.getPlaybackState() == Player.STATE_ENDED || player.getPlayerError() != null) prepareCurrent();
                 else player.play();
                 log("已收到播放指令"); break;
             case "Pause":
                 if(currentUri.isEmpty()) throw new Dlna.Fault(701,"No media");
-                desiredPlay = false; cancelRetry(); player.pause(); status="已暂停"; log("已暂停"); break;
+                desiredPlay = false; pendingPresentation = false; cancelRetry(); player.pause(); foreground(false); status="已暂停"; log("已暂停"); break;
             case "Stop": stopPlayback(); break;
             case "Seek":
                 if (!List.of("REL_TIME","ABS_TIME").contains(args.get("Unit"))) throw new Dlna.Fault(710,"Seek mode unsupported");
@@ -272,7 +278,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
     private String duration() { long value=player.getDuration(); return value==C.TIME_UNSET || value<0 || player.isCurrentMediaItemLive()?"00:00:00":Dlna.time(value); }
     private String transportState() {
         if(currentUri.isEmpty()) return "NO_MEDIA_PRESENT";
-        if(probing && desiredPlay) return "TRANSITIONING";
+        if((probing || pendingPresentation) && desiredPlay) return "TRANSITIONING";
         if(player.getPlayerError()!=null || player.getPlaybackState()==Player.STATE_IDLE || player.getPlaybackState()==Player.STATE_ENDED) return "STOPPED";
         if(desiredPlay && player.getPlaybackState()==Player.STATE_BUFFERING) return "TRANSITIONING";
         return player.getPlayWhenReady()?"PLAYING":"PAUSED_PLAYBACK";
@@ -286,7 +292,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         });
     }
     private void prepareCurrent() {
-        if(!alive || currentUri.isEmpty() || !desiredPlay || probing) return;
+        if(!alive || currentUri.isEmpty() || !desiredPlay || probing || !ensurePresentation()) return;
         error=""; transportStatus="OK"; status="正在连接直播";
         MediaItem.Builder item = new MediaItem.Builder().setUri(currentUri)
                 .setLiveConfiguration(new MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(8000).build())
@@ -342,7 +348,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         return 0;
     }
     public void stopPlayback() {
-        desiredPlay=false; cancelRetry(); cancelFormatProbe(); selectedQuality=""; player.stop(); player.clearMediaItems(); resetQuality(); currentUri=""; metadata=""; title=""; mime="";
+        desiredPlay=false; pendingPresentation=false; cancelRetry(); cancelFormatProbe(); selectedQuality=""; player.stop(); player.clearMediaItems(); resetQuality(); currentUri=""; metadata=""; title=""; mime="";
         error=""; transportStatus="OK"; sessionStarted=0; playingSince=0; status=endpoint.isEmpty()?"接收服务未就绪":"等待平板投屏"; foreground(false); log("已结束播放，等待下一次投屏"); changed();
     }
     public void togglePause() {
@@ -409,8 +415,36 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         return actual != null && actual.width == choice.width() && actual.height == choice.height()
                 ? "手动" : "正在切换至 " + choice.label();
     }
+    boolean hasPresentation() { return observer!=null; }
+    boolean isShuttingDown() { return shuttingDown; }
     public ExoPlayer player() { return player; }
-    public void observe(Runnable value) { observer=value; if(value!=null)value.run(); }
+    public void observe(Runnable value) {
+        observer=value;
+        if(value!=null) {
+            if(pendingPresentation && desiredPlay) { pendingPresentation=false; foreground(true); prepareCurrent(); }
+            value.run();
+        } else if(!shuttingDown && !currentUri.isEmpty()) {
+            // Leaving a TV video surface must never leave invisible playback/audio running.
+            stopPlayback();
+        }
+    }
+    private boolean ensurePresentation() {
+        if(observer!=null) { pendingPresentation=false; return true; }
+        if(pendingPresentation)return false;
+        pendingPresentation=true; status="已收到投屏，请打开电视上的本应用播放"; foreground(false);
+        if(Build.VERSION.SDK_INT<29 || Settings.canDrawOverlays(this)) {
+            try {
+                startActivity(new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+                log("已请求打开播放界面；若系统未切换，请手动打开本应用");
+            } catch(RuntimeException e) { log("系统未允许打开播放界面，请手动打开本应用"); }
+        } else log("后台已收到投屏，尚未授权自动打开，请手动打开本应用");
+        return false;
+    }
+    public void shutdown() {
+        shuttingDown=true;
+        stopPlayback();
+        stopSelf();
+    }
     public Ui ui() { return new Ui(status,error,address,endpoint,title,received,String.join("\n",history),sessionStarted==0?"00:00:00":Dlna.time(SystemClock.elapsedRealtime()-sessionStarted),!currentUri.isEmpty(),actualQuality(),qualityMode(),mediaGeneration); }
     private void changed() { if(observer!=null) observer.run(); HttpServer server=http; if(server!=null)server.publish(); }
     private void log(String value) {
@@ -420,7 +454,10 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         while(history.size()>60)history.remove(0);
         if(observer!=null) observer.run();
     }
-    @Override public int onStartCommand(Intent intent,int flags,int startId){return START_NOT_STICKY;}
+    @Override public int onStartCommand(Intent intent,int flags,int startId){
+        if(intent!=null && "cn.local.livingroomcast.STOP".equals(intent.getAction())) { shutdown(); return START_NOT_STICKY; }
+        return START_STICKY;
+    }
     @Override public IBinder onBind(Intent intent){return binder;}
     @Override public void onDestroy() {
         alive=false; generation.incrementAndGet(); cancelFormatProbe();formatWork.shutdownNow();observer=null; main.removeCallbacksAndMessages(null);

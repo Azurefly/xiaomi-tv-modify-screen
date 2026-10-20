@@ -77,3 +77,22 @@ adb shell am instrument -w cn.local.livingroomcast.test/cn.local.livingroomcast.
 测试发现并修复旧清晰度弹窗异步关闭回调会再次唤出新视频控制层的问题。测试场景还包含合成 HTTP 404 错误，确保失败状态仍能看见信息。
 
 本次产品逻辑只改 MainActivity 的显示与弹窗生命周期；其他应用代码仅更新版本号（0.1.5-test / versionCode 6）。没有继续排查真实 App 清晰度问题，也没有重跑未改变的协议 / 格式独立检查。原生测试环境及合成媒体条件与前节相同，仍不能代替索尼真机验收。
+
+## 0.1.6-test 后台待机 · 2026-10-20
+
+构建与 Android Lint 通过（0 错误、11 警告）。Android 11 / API 30 ARM64 模拟器中，28 项后台待机检查与 38 项原生画质 / 信息层回归检查通过；29 项协议、10 项格式、8 项档位模型独立检查通过。
+
+后台检查通过真实 HTTP / SOAP 与局域网组播 SSDP 执行，覆盖：Home 后无绑定客户端时仍能发现、收到后台 Play 后等待可见播放界面、不授权时不隐形播放、后台请求可被 Pause / Stop 取消、手动打开后播放、Home 结束当前视频而继续待机、授权后自动打开、关闭 Activity 后继续发现、通知退出关闭端口并移除常驻通知。
+
+另做进程回收模拟：待机进程被终止后，系统重建前台服务，HTTP 设备描述恢复（3 项检查）。这是模拟器上的进程终止，不是强行停止、关机或真实电视厂商的后台清理验收。
+
+复现待机检查时，先按前节准备 10.0.2.2:18099 的合成媒体服务，然后选择独立 runner（默认仍为原画质 runner）：
+
+```sh
+./gradlew assembleDebug assembleDebugAndroidTest -PnativeRunner=cn.local.livingroomcast.StandbyInstrumentation
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb shell am instrument -w cn.local.livingroomcast.test/cn.local.livingroomcast.StandbyInstrumentation
+```
+
+此测试会在专用模拟器中临时允许 / 禁止本应用的 SYSTEM_ALERT_WINDOW AppOp，结束时恢复默认值；不要直接对日常使用的真实设备执行。真实索尼电视的授权入口、后台自动打开、长时间待机、待机功耗、关屏 / 深度休眠、升级后的厂商限制仍待实测。没有继续排查此前暂缓的真实 App 单档清晰度问题。
