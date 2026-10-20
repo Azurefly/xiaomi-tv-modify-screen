@@ -2,7 +2,7 @@
 
 一个用于 Android TV 的轻量 DLNA 视频接收端。打开电视上的应用，在平板视频软件中点 TV / 投屏，选择“小狗便利店投屏”。
 
-最初用于家里的安卓平板向索尼电视投送直播。没有账号、广告、订阅收费或人为播放时长限制。当前开发版本 **0.1.6-test**，仍处于测试阶段。
+最初用于家里的安卓平板向索尼电视投送直播。没有账号、广告、订阅收费或人为播放时长限制。当前公开测试版本 **0.1.6-test**，仍处于测试阶段。
 
 ![等待投屏界面](docs/images/waiting.png)
 
@@ -37,7 +37,7 @@
 
 ## 安装与使用
 
-下载 [0.1.4-test 测试安装包](https://github.com/leiz56638111-create/puppy-store-cast/releases/download/v0.1.4-test/PuppyStoreCast-0.1.4-test.apk)，或查看 [发布说明、源码和校验值](https://github.com/leiz56638111-create/puppy-store-cast/releases/tag/v0.1.4-test)。也可按下节自行编译。
+下载 [0.1.6-test 测试安装包](https://github.com/leiz56638111-create/puppy-store-cast/releases/download/v0.1.6-test/PuppyStoreCast-0.1.6-test.apk)，或查看 [发布说明、源码和校验值](https://github.com/leiz56638111-create/puppy-store-cast/releases/tag/v0.1.6-test)。也可按下节自行编译。
 
 1. 把 APK 拷到 U 盘，通过电视文件管理器打开；按电视提示允许对应应用安装未知来源的软件。
 2. 安装并打开“小狗便利店投屏”，确认电视已联网。
@@ -92,7 +92,7 @@ Windows 路径仅提供操作说明，尚未在 Windows 真机验证。也可使
 
 构建脚本会为缺少密钥的源码副本生成本地调试密钥。示例密码 `android` 是调试配置，不是生产环境凭据。
 
-公开的 0.1.4-test 安装包沿用此前版本的测试签名，与本地交付的 0.1.4-test 是同一文件；可以覆盖同包名、同签名的已有安装。仓库不包含该签名私钥。不同人自行编译的 APK 签名不同，不能直接覆盖彼此的安装；后续签名安排以各版本发布说明为准。
+公开的 0.1.6-test 安装包沿用此前版本的测试签名，与本地交付的 0.1.6-test 是同一文件；可以覆盖同包名、同签名的已有安装。仓库不包含该签名私钥。不同人自行编译的 APK 签名不同，不能直接覆盖彼此的安装；后续签名安排以各版本发布说明为准。
 
 ## 测试与参与
 
