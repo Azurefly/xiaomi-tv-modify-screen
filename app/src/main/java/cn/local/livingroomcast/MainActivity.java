@@ -67,6 +67,7 @@ public final class MainActivity extends Activity {
         LinearLayout buttons = new LinearLayout(this); buttons.setOrientation(LinearLayout.HORIZONTAL);
         Button standby=button("后台待机",v->standby()); buttons.addView(standby);
         Button details=button("连接详情",v->details()); LinearLayout.LayoutParams detailParams=new LinearLayout.LayoutParams(-2,dp(48)); detailParams.leftMargin=dp(12); buttons.addView(details,detailParams);
+        Button boot=button(bootLabel(),v->toggleBootStandby((Button)v)); LinearLayout.LayoutParams bootParams=new LinearLayout.LayoutParams(-2,dp(48)); bootParams.leftMargin=dp(12); buttons.addView(boot,bootParams);
         Button exit=button("退出接收",v->confirmExit()); LinearLayout.LayoutParams exitParams=new LinearLayout.LayoutParams(-2,dp(48)); exitParams.leftMargin=dp(12); buttons.addView(exit,exitParams);
         waiting.addView(buttons);
         TextView note=text("按 Home 可后台待机；“退出接收”会停止服务。自动打开新投屏可在“后台待机”中授权。",12,MUTED); add(waiting,note,8);
@@ -103,7 +104,7 @@ public final class MainActivity extends Activity {
         status.setText(ui.status());
         network.setText(ui.address().isEmpty()?"请连接家庭 Wi-Fi，或将电视接入同一路由器的网线。":"电视地址  " + ui.address() + "    ·    DLNA 接收");
         String summary = "已收到 " + ui.received() + " 次播放地址";
-        progress.setText(ui.error().isEmpty()?summary + "\n若设备列表没有本机，请先结束当贝接收，再重新搜索。":ui.error());
+        progress.setText(ui.error().isEmpty()?summary + "\n若设备列表没有本机，请先关闭电视自带投屏或当贝等其他接收，再重新搜索。":ui.error());
         playbackTitle.setText(ui.title());
         playbackStatus.setText(ui.status() + (ui.error().isEmpty()?"":"\n" + ui.error()));
         playbackTime.setText("本次连接  " + ui.elapsed());
@@ -196,16 +197,30 @@ public final class MainActivity extends Activity {
                     "回到桌面后仍可被平板发现。允许“显示在其他应用上层”后，新投屏可自动打开播放界面；不允许时，收到视频后需手动打开本应用播放。此权限不用于显示悬浮窗。")
                 .setNegativeButton("取消",null);
         if(allowed)dialog.setPositiveButton("进入后台",(d,w)->moveTaskToBack(true));
-        else dialog.setPositiveButton("去授权",(d,w)->{
-            try { startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName()))); }
-            catch(ActivityNotFoundException e) {
-                try { startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)); }
-                catch(ActivityNotFoundException unavailable) { Toast.makeText(this,"本机未提供此授权入口，可在系统应用设置中查找；也可手动打开本应用播放。",Toast.LENGTH_LONG).show(); }
-            }
-        }).setNeutralButton("直接后台等待",(d,w)->moveTaskToBack(true));
+        else dialog.setPositiveButton("去授权",(d,w)->openOverlaySettings()).setNeutralButton("直接后台等待",(d,w)->moveTaskToBack(true));
         dialog.show();
     }
+    /** Xiaomi PatchWall often lacks the AOSP overlay screen; try the MIUI permission editor, then app details. */
+    private void openOverlaySettings() {
+        Uri pkg=Uri.parse("package:"+getPackageName());
+        Intent[] candidates={
+            new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,pkg),
+            new Intent("miui.intent.action.APP_PERM_EDITOR").putExtra("extra_pkgname",getPackageName()),
+            new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,pkg),
+            new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)};
+        for(Intent intent:candidates) {
+            try { startActivity(intent); return; } catch(ActivityNotFoundException|SecurityException unavailable) { }
+        }
+        Toast.makeText(this,"本机未提供此授权入口，可在系统应用设置中查找；也可手动打开本应用播放。",Toast.LENGTH_LONG).show();
+    }
+    private String bootLabel() { return BootReceiver.enabled(this)?"开机待机：开":"开机待机：关"; }
+    private void toggleBootStandby(Button button) {
+        boolean next=!BootReceiver.enabled(this); BootReceiver.setEnabled(this,next); button.setText(bootLabel());
+        Toast.makeText(this,next?"已开启：电视冷启动后自动后台待机。小米电视若在“应用自启动”中禁止了本应用，需要先允许。":"已关闭开机待机",Toast.LENGTH_LONG).show();
+    }
     @Override public boolean onKeyDown(int code,KeyEvent event) {
+        // Xiaomi remotes have a Menu key but no dedicated quality button.
+        if(video && code==KeyEvent.KEYCODE_MENU) { showHud(); quality(); return true; }
         if(code==KeyEvent.KEYCODE_BACK){if(service!=null && service.ui().video())service.stopPlayback();else standby();return true;}
         if(video && (code==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || code==KeyEvent.KEYCODE_MEDIA_PAUSE || code==KeyEvent.KEYCODE_MEDIA_PLAY)) {
             if(service!=null)service.togglePause();showHud();return true;

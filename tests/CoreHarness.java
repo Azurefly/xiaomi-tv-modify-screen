@@ -31,6 +31,11 @@ public final class CoreHarness {
             if(!MediaProbe.mime("Application/X-MpegURL; charset=UTF-8").equals(MediaProbe.HLS))throw new AssertionError("canonical HLS MIME");
             if(!MediaProbe.inspect("\uFEFF \n#EXTM3U\n#EXT-X-TARGETDURATION:2".getBytes(java.nio.charset.StandardCharsets.UTF_8),"video/mp4","").kind().equals("HLS"))throw new AssertionError("HLS magic");
             if(!MediaProbe.inspect("<!DOCTYPE html><html>failed</html>".getBytes(),"video/mp4","").nonMedia())throw new AssertionError("HTML rejected");
+            for(String bad:List.of("localhost","tv.localhost","127.0.0.1","127.1","2130706433","0x7f.1","010.0.0.1","0.0.0.0","169.254.169.254","[::1]","[::ffff:127.0.0.1]","[fe80::1]","239.255.255.250","192.168.1.20",""))
+                if(!MediaTarget.blockedHost(bad,"192.168.1.20"))throw new AssertionError("local target accepted: "+bad);
+            for(String ok:List.of("192.168.1.30","10.0.0.8","cdn.example.invalid","cafe.be","[2001:db8::1]"))
+                if(MediaTarget.blockedHost(ok,"192.168.1.20"))throw new AssertionError("LAN/public target rejected: "+ok);
+            try { MediaProbe.fetch("http://127.0.0.1:9/live.m3u8","192.168.1.20"); throw new AssertionError("probe reached loopback"); } catch(java.io.IOException expected) { if(!"Blocked local target".equals(expected.getMessage()))throw expected; }
             for(String service:Dlna.SERVICES){Xml.parse(Dlna.scpd(service)); Xml.parse(Dlna.eventXml(service,Dlna.values("TransportState","PLAYING")));}
             System.out.println("CORE_UNIT_OK");return;
         }

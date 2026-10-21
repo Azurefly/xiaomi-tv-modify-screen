@@ -22,30 +22,43 @@ public final class SsdpServer implements AutoCloseable {
     private final List<String> types;
     private int pendingSearches;
     private long lastSearchLog;
+    private final byte[] subnet;
+    private final int prefix;
+    /** True when UDP 1900 is held exclusively by another receiver (e.g. a TV's built-in cast service). */
+    private final boolean announceOnly;
     public SsdpServer(InetAddress address, String uuid, String location, Consumer<String> log) throws IOException {
         this.uuid = "uuid:" + uuid; this.location = location; this.log = log;
         types = new ArrayList<>(List.of("upnp:rootdevice", this.uuid, Dlna.DEVICE));
         for (String s : Dlna.SERVICES) types.add(Dlna.type(s));
         group = InetAddress.getByName("239.255.255.250");
         socket = new MulticastSocket(null);
+        boolean fallback = false;
+        int bits = -1;
         try {
-            socket.setReuseAddress(true); socket.bind(new InetSocketAddress(1900));
+            socket.setReuseAddress(true);
+            try { socket.bind(new InetSocketAddress(1900)); }
+            catch (BindException busy) { socket.bind(new InetSocketAddress(0)); fallback = true; }
             NetworkInterface net = NetworkInterface.getByInetAddress(address);
             if (net == null) throw new IOException("No LAN interface");
+            for (InterfaceAddress ia : net.getInterfaceAddresses()) if (address.equals(ia.getAddress())) bits = ia.getNetworkPrefixLength();
             socket.setNetworkInterface(net); socket.setTimeToLive(2);
-            socket.joinGroup(new InetSocketAddress(group, 1900), net);
+            if (!fallback) socket.joinGroup(new InetSocketAddress(group, 1900), net);
         } catch (IOException e) { socket.close(); throw e; }
+        announceOnly = fallback; subnet = address.getAddress(); prefix = bits;
+        if (fallback) log.accept("1900 端口被系统投屏占用，改为定时广播模式");
         scheduler.setRemoveOnCancelPolicy(true);
     }
     public void start() {
-        scheduler.scheduleWithFixedDelay(() -> announce("ssdp:alive"), 0, 120, TimeUnit.SECONDS);
+        // Without M-SEARCH replies, senders only learn about us from NOTIFY, so announce well within max-age.
+        scheduler.scheduleWithFixedDelay(() -> announce("ssdp:alive"), 0, announceOnly ? 30 : 120, TimeUnit.SECONDS);
         scheduler.schedule(() -> announce("ssdp:alive"), 2, TimeUnit.SECONDS);
+        if (announceOnly) return;
         new Thread(() -> {
             byte[] buffer = new byte[8192];
             while (!closed) {
                 try {
                     DatagramPacket packet = new DatagramPacket(buffer, buffer.length); socket.receive(packet);
-                    if (packet.getAddress().isMulticastAddress() || packet.getAddress().isAnyLocalAddress()) continue;
+                    if (packet.getAddress().isMulticastAddress() || packet.getAddress().isAnyLocalAddress() || !sameSubnet(packet.getAddress())) continue;
                     String text = new String(packet.getData(), packet.getOffset(), packet.getLength(), StandardCharsets.US_ASCII);
                     Search search = parseSearch(text);
                     if (search == null) continue;
@@ -63,6 +76,17 @@ public final class SsdpServer implements AutoCloseable {
             }
         }, "cast-ssdp").start();
     }
+    /** Replies only to the local segment, so spoofed off-net sources cannot use the receiver as a reflector. */
+    boolean sameSubnet(InetAddress peer) {
+        byte[] p = peer.getAddress();
+        if (prefix < 0 || p.length != subnet.length) return prefix < 0;
+        for (int bit = 0; bit < prefix; bit++) {
+            int mask = 0x80 >>> (bit % 8);
+            if ((p[bit / 8] & mask) != (subnet[bit / 8] & mask)) return false;
+        }
+        return true;
+    }
+    public boolean announceOnly() { return announceOnly; }
     public record Search(String st, int mx) {}
     public static Search parseSearch(String text) {
         String[] lines = text.split("\r?\n");

@@ -8,11 +8,13 @@ package cn.local.livingroomcast;
 import android.app.*;
 import android.content.*;
 import android.content.pm.ServiceInfo;
+import android.hardware.display.DisplayManager;
 import android.media.AudioManager;
 import android.net.*;
 import android.net.wifi.WifiManager;
 import android.os.*;
 import android.provider.Settings;
+import android.view.Display;
 import androidx.media3.common.*;
 import androidx.media3.datasource.*;
 import androidx.media3.exoplayer.*;
@@ -46,6 +48,8 @@ public final class ReceiverService extends Service implements Dlna.Controller {
     private String status = "正在启动接收服务", error = "", transportStatus = "OK";
     private Runnable observer;
     private String selectedQuality = "";
+    /** LAN host that sent the current URI; only it may read the URI back (it can carry playback tokens). */
+    private InetAddress owner;
     private int received, retries;
     private boolean desiredPlay, formatProbed, probing, pendingPresentation, shuttingDown;
     private int mediaGeneration;
@@ -68,10 +72,14 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         audio = (AudioManager)getSystemService(AUDIO_SERVICE);
         var httpFactory = new DefaultHttpDataSource.Factory().setUserAgent(MediaProbe.USER_AGENT)
                 .setConnectTimeoutMs(12000).setReadTimeoutMs(15000).setAllowCrossProtocolRedirects(true);
-        player = new ExoPlayer.Builder(this)
+        // MediaTek TV SoCs (most Xiaomi TVs) sometimes fail to configure the first hardware decoder; try the next one.
+        DefaultRenderersFactory renderers = new DefaultRenderersFactory(this).setEnableDecoderFallback(true);
+        player = new ExoPlayer.Builder(this, renderers)
                 .setMediaSourceFactory(new DefaultMediaSourceFactory(new DefaultDataSource.Factory(this, httpFactory)))
-                .setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(12000,45000,1500,3000).build())
+                .setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(12000,45000,1500,3000)
+                        .setTargetBufferBytes(bufferBudgetBytes()).setPrioritizeTimeOverSizeThresholds(false).build())
                 .setWakeMode(C.WAKE_MODE_NETWORK).build();
+        allowPanelResolution();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true);
         player.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int state) {
@@ -104,7 +112,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
                 int response = responseCode(e);
                 log("播放错误：" + e.getErrorCodeName() + (response == 0 ? "" : "，HTTP " + response));
                 if (response == 401 || response == 403 || response == 404 || response == 410) {
-                    fail("直播地址已失效或服务器拒绝访问，请在 Z 视介重新投屏。"); return;
+                    fail("直播地址已失效或服务器拒绝访问，请在发送端 App 重新投屏。"); return;
                 }
                 if (!formatProbed && e.errorCode >= 3001 && e.errorCode <= 3004) {
                     inspectFailedMedia(); return;
@@ -128,6 +136,31 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         connectivity.registerNetworkCallback(new NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), networkCallback);
         log("测试版启动：只接收局域网投屏，不设人为时长限制");
         refreshNetwork(); main.postDelayed(tick, 1000);
+    }
+    /**
+     * Media3 buffers live in the Java heap. Its default 4K video budget (~128 MB) can exceed the heap of
+     * 1.5–2 GB Xiaomi TVs, so cap it at a quarter of the large-heap class.
+     */
+    private int bufferBudgetBytes() {
+        ActivityManager am = (ActivityManager)getSystemService(ACTIVITY_SERVICE);
+        int mb = am == null || am.isLowRamDevice() ? 24 : Math.max(24, Math.min(96, am.getLargeMemoryClass() / 4));
+        return mb * 1024 * 1024;
+    }
+    /**
+     * Many Xiaomi 4K TVs run their UI in a 1080p mode, so Media3's viewport limit (current display mode)
+     * would hide 2160p variants in automatic mode. Use the largest mode the panel actually supports.
+     */
+    private void allowPanelResolution() {
+        DisplayManager dm = (DisplayManager)getSystemService(DISPLAY_SERVICE);
+        Display display = dm == null ? null : dm.getDisplay(Display.DEFAULT_DISPLAY);
+        if (display == null) return;
+        int width = 0, height = 0;
+        for (Display.Mode mode : display.getSupportedModes()) {
+            if ((long)mode.getPhysicalWidth() * mode.getPhysicalHeight() > (long)width * height) { width = mode.getPhysicalWidth(); height = mode.getPhysicalHeight(); }
+        }
+        if ((long)width * height <= 1920L * 1080) return;
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon().setViewportSize(width, height, true).build());
+        log("电视面板支持 " + width + "×" + height + "，自动画质可选择高于界面分辨率的片源");
     }
     private void foreground(boolean playing) {
         Intent open = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -198,9 +231,15 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         catch (TimeoutException e) { task.cancel(false); throw new Dlna.Fault(501, "Receiver busy"); }
     }
     @Override public Map<String,String> action(String service, String name, Map<String,String> args) throws Exception {
-        return onMain(() -> dispatch(service, name, args));
+        return action(service, name, args, null);
     }
-    private Map<String,String> dispatch(String service, String name, Map<String,String> args) throws Exception {
+    @Override public Map<String,String> action(String service, String name, Map<String,String> args, InetAddress peer) throws Exception {
+        return onMain(() -> dispatch(service, name, args, peer));
+    }
+    private boolean mayRead(InetAddress peer) { return peer == null || peer.equals(owner); }
+    private String visibleUri(InetAddress peer) { return mayRead(peer) ? currentUri : ""; }
+    private String visibleMetadata(InetAddress peer) { return mayRead(peer) ? metadata : ""; }
+    private Map<String,String> dispatch(String service, String name, Map<String,String> args, InetAddress peer) throws Exception {
         if (args.containsKey("InstanceID") && !"0".equals(args.get("InstanceID"))) throw new Dlna.Fault(718, "Invalid InstanceID");
         if (args.containsKey("Channel") && !"Master".equals(args.get("Channel"))) throw new Dlna.Fault(402, "Invalid channel");
         if (service.equals(Dlna.CM)) return switch (name) {
@@ -236,10 +275,11 @@ public final class ReceiverService extends Service implements Dlna.Controller {
                 URI parsed;
                 try { parsed = new URI(uri); if(!List.of("http","https").contains(parsed.getScheme()) || parsed.getHost() == null || parsed.getUserInfo() != null) throw new IllegalArgumentException(); }
                 catch (Exception e) { throw new Dlna.Fault(714,"Only HTTP(S) media supported"); }
+                if (MediaTarget.blockedHost(parsed.getHost(), address)) { log("已拒绝指向电视本机的播放地址"); throw new Dlna.Fault(714,"Local-only media address rejected"); }
                 cancelRetry(); cancelFormatProbe(); retries = 0; formatProbed = false; sessionStarted = 0; playingSince = 0; desiredPlay = false; pendingPresentation = false;
                 selectedQuality = "";
                 player.stop(); player.clearMediaItems(); resetQuality();
-                currentUri = uri; metadata = args.getOrDefault("CurrentURIMetaData", "");
+                currentUri = uri; metadata = args.getOrDefault("CurrentURIMetaData", ""); owner = peer;
                 String declared = MediaProbe.mime(Xml.resourceMime(metadata)); mime = MediaProbe.initialMime(uri,declared);
                 title = Xml.first(metadata, "title"); if (title.isBlank()) title = "小狗便利店投屏";
                 received++; status = "已收到视频，等待播放指令"; error = ""; transportStatus = "OK";
@@ -264,8 +304,8 @@ public final class ReceiverService extends Service implements Dlna.Controller {
                 if (player.isCurrentMediaItemLive() || !player.isCurrentMediaItemSeekable()) throw new Dlna.Fault(710,"Live stream does not support seeking");
                 player.seekTo(Dlna.millis(args.get("Target"))); break;
             case "GetTransportInfo": return Dlna.values("CurrentTransportState",transportState(),"CurrentTransportStatus",transportStatus,"CurrentSpeed","1");
-            case "GetPositionInfo": return Dlna.values("Track", currentUri.isEmpty()?"0":"1", "TrackDuration",duration(),"TrackMetaData",metadata,"TrackURI",currentUri,"RelTime",Dlna.time(player.getCurrentPosition()),"AbsTime",Dlna.time(player.getCurrentPosition()),"RelCount","2147483647","AbsCount","2147483647");
-            case "GetMediaInfo": return Dlna.values("NrTracks",currentUri.isEmpty()?"0":"1","MediaDuration",duration(),"CurrentURI",currentUri,"CurrentURIMetaData",metadata,"NextURI","","NextURIMetaData","","PlayMedium","NETWORK","RecordMedium","NOT_IMPLEMENTED","WriteStatus","NOT_IMPLEMENTED");
+            case "GetPositionInfo": return Dlna.values("Track", currentUri.isEmpty()?"0":"1", "TrackDuration",duration(),"TrackMetaData",visibleMetadata(peer),"TrackURI",visibleUri(peer),"RelTime",Dlna.time(player.getCurrentPosition()),"AbsTime",Dlna.time(player.getCurrentPosition()),"RelCount","2147483647","AbsCount","2147483647");
+            case "GetMediaInfo": return Dlna.values("NrTracks",currentUri.isEmpty()?"0":"1","MediaDuration",duration(),"CurrentURI",visibleUri(peer),"CurrentURIMetaData",visibleMetadata(peer),"NextURI","","NextURIMetaData","","PlayMedium","NETWORK","RecordMedium","NOT_IMPLEMENTED","WriteStatus","NOT_IMPLEMENTED");
             case "GetDeviceCapabilities": return Dlna.values("PlayMedia","NETWORK","RecMedia","NOT_IMPLEMENTED","RecQualityModes","NOT_IMPLEMENTED");
             case "GetTransportSettings": return Dlna.values("PlayMode","NORMAL","RecQualityMode","NOT_IMPLEMENTED");
             case "GetCurrentTransportActions": return Dlna.values("Actions", transportActions());
@@ -284,9 +324,10 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         return player.getPlayWhenReady()?"PLAYING":"PAUSED_PLAYBACK";
     }
     private String transportActions() { return currentUri.isEmpty()?"":"Play,Stop,Pause" + (player.isCurrentMediaItemSeekable() && !player.isCurrentMediaItemLive()?",Seek":""); }
-    @Override public Map<String,String> event(String service) throws Exception {
+    @Override public Map<String,String> event(String service) throws Exception { return event(service, null); }
+    @Override public Map<String,String> event(String service, InetAddress peer) throws Exception {
         return onMain(() -> switch (service) {
-            case Dlna.AV -> Dlna.values("TransportState",transportState(),"TransportStatus",transportStatus,"TransportPlaySpeed","1","AVTransportURI",currentUri,"AVTransportURIMetaData",metadata,"CurrentTrackURI",currentUri,"CurrentTrackMetaData",metadata,"NumberOfTracks",currentUri.isEmpty()?"0":"1","CurrentTrack",currentUri.isEmpty()?"0":"1","CurrentTrackDuration",duration(),"CurrentMediaDuration",duration(),"CurrentTransportActions",transportActions());
+            case Dlna.AV -> Dlna.values("TransportState",transportState(),"TransportStatus",transportStatus,"TransportPlaySpeed","1","AVTransportURI",visibleUri(peer),"AVTransportURIMetaData",visibleMetadata(peer),"CurrentTrackURI",visibleUri(peer),"CurrentTrackMetaData",visibleMetadata(peer),"NumberOfTracks",currentUri.isEmpty()?"0":"1","CurrentTrack",currentUri.isEmpty()?"0":"1","CurrentTrackDuration",duration(),"CurrentMediaDuration",duration(),"CurrentTransportActions",transportActions());
             case Dlna.RC -> Dlna.values("Volume",Integer.toString(volume()),"Mute",audio.isStreamMute(AudioManager.STREAM_MUSIC)?"1":"0");
             default -> Dlna.values("SourceProtocolInfo","","SinkProtocolInfo",Dlna.PROTOCOLS,"CurrentConnectionIDs","0");
         });
@@ -302,17 +343,17 @@ public final class ReceiverService extends Service implements Dlna.Controller {
     }
     private void inspectFailedMedia() {
         formatProbed=true; probing=true;
-        int ticket=mediaGeneration; String uri=currentUri;
+        int ticket=mediaGeneration; String uri=currentUri, self=address;
         status="正在识别直播实际格式";
         log("开始检查返回内容，最多读取 8 KB，不记录完整地址"); changed();
         formatJob=formatWork.submit(() -> {
             try {
-                MediaProbe.Result result=MediaProbe.fetch(uri);
+                MediaProbe.Result result=MediaProbe.fetch(uri,self);
                 main.post(() -> {
                     if(!alive || ticket!=mediaGeneration || !uri.equals(currentUri))return;
                     probing=false; formatJob=null;
                     log("格式检查：HTTP " + result.status() + "，响应标记：" + (result.contentType().isEmpty()?"未提供":result.contentType()) + "，实际内容：" + result.format().kind());
-                    if(result.status()==401 || result.status()==403 || result.status()==404 || result.status()==410) { fail("直播地址已失效或服务器拒绝访问，请在 Z 视介重新投屏。"); return; }
+                    if(result.status()==401 || result.status()==403 || result.status()==404 || result.status()==410) { fail("直播地址已失效或服务器拒绝访问，请在发送端 App 重新投屏。"); return; }
                     if(result.status()<200 || result.status()>=300) { scheduleRetry("检查直播地址时服务器返回 HTTP " + result.status()); return; }
                     if(result.format().nonMedia()) { fail("收到的是网页或接口响应（" + result.format().kind() + "），不是可直接播放的视频；需要进一步适配这个地址。"); return; }
                     String detected=result.format().mime();
@@ -335,7 +376,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
     private void scheduleRetry(String reason) {
         cancelRetry();
         if(!desiredPlay) return;
-        if(retries >= 3) { fail("直播连接未恢复，请在 Z 视介重新投屏。"); return; }
+        if(retries >= 3) { fail("直播连接未恢复，请在发送端 App 重新投屏。"); return; }
         int delay = new int[]{2,5,10}[retries++]; status = "连接中断，" + delay + " 秒后重试（" + retries + "/3）";
         error=""; log(reason + "，准备第 " + retries + " 次重连");
         pendingRetry=() -> { pendingRetry=null; if(alive && desiredPlay) prepareCurrent(); };
@@ -348,12 +389,12 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         return 0;
     }
     public void stopPlayback() {
-        desiredPlay=false; pendingPresentation=false; cancelRetry(); cancelFormatProbe(); selectedQuality=""; player.stop(); player.clearMediaItems(); resetQuality(); currentUri=""; metadata=""; title=""; mime="";
+        desiredPlay=false; pendingPresentation=false; cancelRetry(); cancelFormatProbe(); selectedQuality=""; player.stop(); player.clearMediaItems(); resetQuality(); currentUri=""; metadata=""; owner=null; title=""; mime="";
         error=""; transportStatus="OK"; sessionStarted=0; playingSince=0; status=endpoint.isEmpty()?"接收服务未就绪":"等待平板投屏"; foreground(false); log("已结束播放，等待下一次投屏"); changed();
     }
     public void togglePause() {
         if(currentUri.isEmpty())return;
-        try { dispatch(Dlna.AV,desiredPlay?"Pause":"Play",Dlna.values("InstanceID","0","Speed","1")); } catch(Exception ignored) { }
+        try { dispatch(Dlna.AV,desiredPlay?"Pause":"Play",Dlna.values("InstanceID","0","Speed","1"),null); } catch(Exception ignored) { }
     }
     public void reconnect() { if(currentUri.isEmpty())return; retries=0; desiredPlay=true; cancelRetry(); prepareCurrent(); }
     public QualityMenu qualityMenu() {

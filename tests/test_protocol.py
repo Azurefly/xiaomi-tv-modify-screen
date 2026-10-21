@@ -112,6 +112,17 @@ try:
     connection=socket.create_connection((parts.hostname,parts.port));connection.settimeout(5)
     connection.sendall(b'POST /control/AVTransport HTTP/1.1\r\nContent-Length: 999999\r\n\r\n')
     check('oversized request rejected',b'400 Bad Request' in connection.recv(1024));connection.close()
+    sids=[request('SUBSCRIBE','/event/AVTransport',headers={'CALLBACK':f'<http://127.0.0.1:{callback.server_port}/events>','NT':'upnp:event','TIMEOUT':'Second-60'})[1].get('SID') for _ in range(5)]
+    check('one peer cannot exhaust subscriptions',all(sids[:4]) and sids[4] is None)
+    for extra in sids[:4]: request('UNSUBSCRIBE','/event/AVTransport',headers={'SID':extra})
+    while not notifies.empty(): notifies.get_nowait()
+    slow=socket.create_connection((parts.hostname,parts.port));slow.settimeout(20);started=time.monotonic();closed=False
+    try:
+        slow.sendall(b'GET / HTTP/1.1\r\n')
+        while time.monotonic()-started<16:
+            slow.sendall(b'X');time.sleep(2)
+    except OSError: closed=True
+    check('slow-drip request cut off by overall deadline',closed and time.monotonic()-started<16);slow.close()
     status,_,body=soap('AVTransport','Stop',{'InstanceID':'0'})
     check('server remains usable after invalid inputs',status==200)
     print(f'PROTOCOL_OK: {len(checks)} checks')

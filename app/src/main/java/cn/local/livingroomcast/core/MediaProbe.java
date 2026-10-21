@@ -67,7 +67,9 @@ public final class MediaProbe {
         if (!extension.isEmpty()) return new Format("playlist-extension",extension);
         return new Format("UNKNOWN","");
     }
-    public static Result fetch(String original) throws IOException {
+    public static Result fetch(String original) throws IOException { return fetch(original, null); }
+    /** With {@code self} set, every hop (including redirects) must resolve outside the TV's local-only ranges. */
+    public static Result fetch(String original, String self) throws IOException {
         URL next = new URL(original);
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
         boolean range = true;
@@ -76,6 +78,10 @@ public final class MediaProbe {
             int timeout = (int)Math.min(6000,TimeUnit.NANOSECONDS.toMillis(deadline-System.nanoTime()));
             if (timeout <= 0) throw new SocketTimeoutException("Format probe timeout");
             if (!(next.getProtocol().equals("http") || next.getProtocol().equals("https")) || next.getUserInfo()!=null) throw new IOException("Unsupported redirect scheme");
+            if (self != null) {
+                if (MediaTarget.blockedHost(next.getHost(), self)) throw new IOException("Blocked local target");
+                for (InetAddress a : InetAddress.getAllByName(next.getHost())) if (MediaTarget.blockedAddress(a, self)) throw new IOException("Blocked local target");
+            }
             HttpURLConnection connection = (HttpURLConnection)next.openConnection();
             connection.setInstanceFollowRedirects(false); connection.setUseCaches(false);
             connection.setConnectTimeout(timeout); connection.setReadTimeout(timeout);

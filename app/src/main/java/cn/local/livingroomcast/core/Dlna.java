@@ -19,6 +19,9 @@ public final class Dlna {
     public interface Controller {
         Map<String, String> action(String service, String action, Map<String, String> args) throws Exception;
         Map<String, String> event(String service) throws Exception;
+        /** Peer-aware variants let a renderer withhold the media URL from LAN hosts that did not send it. */
+        default Map<String, String> action(String service, String action, Map<String, String> args, java.net.InetAddress peer) throws Exception { return action(service, action, args); }
+        default Map<String, String> event(String service, java.net.InetAddress peer) throws Exception { return event(service); }
     }
     public static final class Fault extends Exception {
         public final int code;

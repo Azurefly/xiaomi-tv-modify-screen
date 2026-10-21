@@ -37,6 +37,8 @@ public final class HttpServer implements AutoCloseable {
         }
         void renew(int seconds) { expires = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds); }
     }
+    private static final long REQUEST_DEADLINE_NANOS = TimeUnit.SECONDS.toNanos(10);
+    private static final int SUBSCRIPTIONS_PER_PEER = 4;
     private record Request(String method, String path, Map<String,String> headers, String body, InetAddress peer) {}
     public HttpServer(InetAddress address, int port, String uuid, Dlna.Controller controller, Consumer<String> log) throws IOException {
         this.uuid = uuid; this.controller = controller; this.log = log;
@@ -79,7 +81,7 @@ public final class HttpServer implements AutoCloseable {
                     Dlna.Action definition = Dlna.actions(service).stream().filter(a -> a.name().equals(name)).findFirst().orElseThrow(() -> new Dlna.Fault(401, "Invalid Action"));
                     Map<String, String> args = Xml.arguments(action);
                     for (Dlna.Arg arg : definition.args()) if (arg.direction().equals("in") && !args.containsKey(arg.name())) throw new Dlna.Fault(402, "Invalid Args");
-                    Map<String, String> response = controller.action(service, name, args);
+                    Map<String, String> response = controller.action(service, name, args, r.peer);
                     send(client, 200, Map.of("EXT", ""), "text/xml; charset=utf-8", Dlna.response(service, name, response));
                     if (name.startsWith("Set") || List.of("Play","Pause","Stop","Seek").contains(name)) publish();
                 } catch (Dlna.Fault f) { send(client, 500, Map.of(), "text/xml; charset=utf-8", Dlna.fault(f.code, f.getMessage())); }
@@ -106,7 +108,9 @@ public final class HttpServer implements AutoCloseable {
             s.renew(seconds);
         } else {
             try {
-                if (subscriptions.size() >= 16 || !"upnp:event".equalsIgnoreCase(r.headers.get("nt"))) throw new IllegalArgumentException();
+                // A single LAN host must not be able to exhaust the shared subscription table.
+                long own = subscriptions.values().stream().filter(x -> x.peer.equals(r.peer)).count();
+                if (subscriptions.size() >= 16 || own >= SUBSCRIPTIONS_PER_PEER || !"upnp:event".equalsIgnoreCase(r.headers.get("nt"))) throw new IllegalArgumentException();
                 String raw = r.headers.getOrDefault("callback", "");
                 if (!raw.startsWith("<") || !raw.endsWith(">")) throw new IllegalArgumentException();
                 URI uri = URI.create(raw.substring(1, raw.length()-1));
@@ -125,7 +129,7 @@ public final class HttpServer implements AutoCloseable {
         if (closed || !subscriptions.containsKey(s.id)) return;
         if (s.expires < System.nanoTime()) { subscriptions.remove(s.id); return; }
         try {
-            byte[] body = Dlna.eventXml(s.service, controller.event(s.service)).getBytes(StandardCharsets.UTF_8);
+            byte[] body = Dlna.eventXml(s.service, controller.event(s.service, s.peer)).getBytes(StandardCharsets.UTF_8);
             int port = s.callback.getPort() < 0 ? 80 : s.callback.getPort();
             try (Socket connection = new Socket()) {
                 connection.connect(new InetSocketAddress(s.peer, port), 2000); connection.setSoTimeout(2000);
@@ -134,20 +138,22 @@ public final class HttpServer implements AutoCloseable {
                 long sequence = s.sequence; s.sequence = sequence >= 4294967295L ? 1 : sequence + 1;
                 String header = "NOTIFY " + path + " HTTP/1.1\r\nHOST: " + s.peer.getHostAddress() + ":" + port + "\r\nCONTENT-TYPE: text/xml; charset=utf-8\r\nNT: upnp:event\r\nNTS: upnp:propchange\r\nSID: " + s.id + "\r\nSEQ: " + sequence + "\r\nCONTENT-LENGTH: " + body.length + "\r\nConnection: close\r\n\r\n";
                 connection.getOutputStream().write(header.getBytes(StandardCharsets.US_ASCII)); connection.getOutputStream().write(body); connection.getOutputStream().flush();
-                String status = line(connection.getInputStream(), 1024);
+                String status = line(connection.getInputStream(), 1024, Long.MAX_VALUE);
                 if (status == null || !status.matches("HTTP/1\\.[01] 2\\d\\d.*")) subscriptions.remove(s.id);
             }
         } catch (Exception ignored) { /* A sleeping sender may temporarily miss an event; retain until expiry. */ }
     }
     private static Request read(Socket client) throws Exception {
         InputStream input = new BufferedInputStream(client.getInputStream());
-        String start = line(input, 8192);
+        // Socket timeout is per read; a whole-request deadline stops slow-drip clients holding the few workers.
+        long deadline = System.nanoTime() + REQUEST_DEADLINE_NANOS;
+        String start = line(input, 8192, deadline);
         if (start == null) throw new IOException();
         String[] pieces = start.split(" ");
         if (pieces.length != 3 || !pieces[1].startsWith("/") || !pieces[2].startsWith("HTTP/1.")) throw new IOException();
         Map<String,String> headers = new LinkedHashMap<>();
         int total = start.length();
-        for (String h; (h = line(input, 8192)) != null && !h.isEmpty();) {
+        for (String h; (h = line(input, 8192, deadline)) != null && !h.isEmpty();) {
             total += h.length(); if (total > 16384) throw new IOException();
             int colon = h.indexOf(':'); if (colon <= 0) throw new IOException();
             String key = h.substring(0, colon).trim().toLowerCase(Locale.US);
@@ -158,12 +164,12 @@ public final class HttpServer implements AutoCloseable {
         int length = Integer.parseInt(headers.getOrDefault("content-length", "0"));
         if (length < 0 || length > 131072) throw new IOException();
         byte[] bytes = new byte[length]; int offset = 0;
-        while (offset < length) { int n = input.read(bytes, offset, length-offset); if (n < 0) throw new EOFException(); offset += n; }
+        while (offset < length) { if (System.nanoTime() - deadline > 0) throw new SocketTimeoutException(); int n = input.read(bytes, offset, length-offset); if (n < 0) throw new EOFException(); offset += n; }
         return new Request(pieces[0], pieces[1].split("\\?",2)[0], headers, new String(bytes, StandardCharsets.UTF_8), client.getInetAddress());
     }
-    private static String line(InputStream input, int limit) throws IOException {
+    private static String line(InputStream input, int limit, long deadline) throws IOException {
         ByteArrayOutputStream b = new ByteArrayOutputStream();
-        for (int c; (c = input.read()) != -1;) { if (c == '\n') return new String(b.toByteArray(), StandardCharsets.US_ASCII).replace("\r", ""); if (b.size() >= limit) throw new IOException(); b.write(c); }
+        for (int c; (c = input.read()) != -1;) { if (deadline != Long.MAX_VALUE && System.nanoTime() - deadline > 0) throw new SocketTimeoutException(); if (c == '\n') return new String(b.toByteArray(), StandardCharsets.US_ASCII).replace("\r", ""); if (b.size() >= limit) throw new IOException(); b.write(c); }
         return null;
     }
     private static void send(Socket s, int code, Map<String,String> headers, String mime, String body) throws IOException { send(s, code, headers, mime, body, false); }
