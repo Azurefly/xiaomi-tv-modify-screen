@@ -58,7 +58,7 @@
 
 ## 安装与使用
 
-在 [Releases](https://github.com/Azurefly/xiaomi-tv-modify-screen/releases/latest) 下载最新测试安装包并核对 SHA-256，或按下文“从源码构建”自行编译。
+在 [Releases](https://github.com/Azurefly/xiaomi-tv-modify-screen/releases) 下载最新测试安装包（目前为 0.1.7-test 预发布版）并核对 SHA-256，或按下文“从源码构建”自行编译。
 
 1. 把 APK 拷到 U 盘，通过电视文件管理器打开；按电视提示允许对应应用安装未知来源的软件。
 2. 安装并打开“小米电视非官方投屏”，确认电视已联网。
