@@ -69,7 +69,7 @@ try:
     status,headers,body=request('GET','/description.xml')
     doc=ET.fromstring(body)
     ns={'d':'urn:schemas-upnp-org:device-1-0'}
-    check('UTF-8 device name and MediaRenderer description', status==200 and doc.find('.//d:friendlyName',ns).text=='小狗便利店投屏')
+    check('UTF-8 device name and MediaRenderer description', status==200 and doc.find('.//d:friendlyName',ns).text=='小米电视非官方投屏')
     services=doc.findall('.//d:service',ns)
     check('three advertised AV services',len(services)==3)
     for service in services:

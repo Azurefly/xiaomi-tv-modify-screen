@@ -64,7 +64,7 @@ public final class StandbyInstrumentation extends Instrumentation {
         }
     }
     private boolean description() {
-        try{HttpURLConnection c=(HttpURLConnection)new URL(endpoint+"/description.xml").openConnection();c.setConnectTimeout(1000);c.setReadTimeout(1000);try{return c.getResponseCode()==200 && new String(read(c.getInputStream()),StandardCharsets.UTF_8).contains("小狗便利店投屏");}finally{c.disconnect();}}catch(IOException e){return false;}
+        try{HttpURLConnection c=(HttpURLConnection)new URL(endpoint+"/description.xml").openConnection();c.setConnectTimeout(1000);c.setReadTimeout(1000);try{return c.getResponseCode()==200 && new String(read(c.getInputStream()),StandardCharsets.UTF_8).contains("小米电视非官方投屏");}finally{c.disconnect();}}catch(IOException e){return false;}
     }
     private void home()throws Exception {shell("input keyevent 3");await("activity releases its playback surface on Home",()->ui(()->!service.hasPresentation()));}
     private void open()throws Exception {

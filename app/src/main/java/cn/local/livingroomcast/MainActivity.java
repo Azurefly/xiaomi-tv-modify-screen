@@ -54,9 +54,9 @@ public final class MainActivity extends Activity {
 
         waiting = column(); waiting.setPadding(dp(48),dp(25),dp(48),dp(22));
         root.addView(waiting,new FrameLayout.LayoutParams(-1,-1));
-        TextView eyebrow = text("LIVING ROOM  /  直播接收验证 0.1.6",12,MINT); eyebrow.setLetterSpacing(.10f); waiting.addView(eyebrow);
-        TextView title = text("小狗便利店投屏",36,WHITE); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); add(waiting,title,12);
-        TextView instruction = text("在平板的软件中点TV/投屏，选择“小狗便利店投屏”",19,WHITE); add(waiting,instruction,9);
+        TextView eyebrow = text("LIVING ROOM  /  小米电视版 0.1.7",12,MINT); eyebrow.setLetterSpacing(.10f); waiting.addView(eyebrow);
+        TextView title = text("小米电视非官方投屏",36,WHITE); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); add(waiting,title,12);
+        TextView instruction = text("在平板的软件中点TV/投屏，选择“小米电视非官方投屏”",19,WHITE); add(waiting,instruction,9);
         network = text("正在检查电视网络…",14,MUTED); add(waiting,network,13);
 
         LinearLayout card=column(); card.setPadding(dp(18),dp(12),dp(18),dp(12)); card.setBackground(background(0xff1d3038,12));
@@ -74,7 +74,7 @@ public final class MainActivity extends Activity {
 
         hud=column(); hud.setPadding(dp(36),dp(24),dp(36),dp(24)); hud.setBackgroundColor(0x99081016);
         root.addView(hud,new FrameLayout.LayoutParams(-1,-1)); hud.setVisibility(View.GONE);
-        playbackTitle=text("小狗便利店投屏",25,WHITE); playbackTitle.setMaxLines(2); hud.addView(playbackTitle);
+        playbackTitle=text("小米电视非官方投屏",25,WHITE); playbackTitle.setMaxLines(2); hud.addView(playbackTitle);
         playbackStatus=text("正在连接直播",17,MINT); add(hud,playbackStatus,8);
         playbackTime=text("",13,MUTED); add(hud,playbackTime,6);
         playbackQuality=text("当前画质  正在识别…",14,WHITE); add(hud,playbackQuality,6);
@@ -171,7 +171,7 @@ public final class MainActivity extends Activity {
         String message="等待接收服务启动。";
         if(service!=null) {
             ReceiverService.Ui u=service.ui();
-            message="小狗便利店投屏 0.1.6-test\n电视：" + Build.MANUFACTURER + " " + Build.MODEL + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT
+            message="小米电视非官方投屏 0.1.7-test\n电视：" + Build.MANUFACTURER + " " + Build.MODEL + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT
                     + "\n接收器：" + (u.endpoint().isEmpty()?"尚未就绪":u.endpoint())
                     + "\n当前画质：" + u.quality() + " · " + u.qualityMode()
                     + "\n收到地址：" + u.received() + " 次\n本次连接：" + u.elapsed()

@@ -61,7 +61,7 @@ def wait_playing():
     return False
 
 status,body=request('GET','/description.xml')
-check('Android receiver HTTP service starts',status==200 and '小狗便利店投屏' in body.decode())
+check('Android receiver HTTP service starts',status==200 and '小米电视非官方投屏' in body.decode())
 status,body=soap('GetProtocolInfo',service='ConnectionManager')
 check('Android XML parser and protocol query work',status==200 and b'application/vnd.apple.mpegurl' in body)
 check('nonzero InstanceID rejected',soap('GetTransportInfo',{'InstanceID':'7'})[0]==500)

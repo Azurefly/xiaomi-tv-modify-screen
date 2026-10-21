@@ -65,7 +65,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         uuid = getSharedPreferences("receiver", MODE_PRIVATE).getString("uuid", "");
         if (uuid.isEmpty()) { uuid = UUID.randomUUID().toString(); getSharedPreferences("receiver", MODE_PRIVATE).edit().putString("uuid", uuid).apply(); }
         if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel channel = new NotificationChannel("receiver", "小狗便利店投屏接收", NotificationManager.IMPORTANCE_LOW);
+            NotificationChannel channel = new NotificationChannel("receiver", "小米电视非官方投屏接收", NotificationManager.IMPORTANCE_LOW);
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
         foreground(false);
@@ -168,7 +168,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, "receiver") : new Notification.Builder(this);
         Intent stop = new Intent(this, ReceiverService.class).setAction("cn.local.livingroomcast.STOP");
         PendingIntent stopPending = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        Notification notification = builder.setContentTitle("小狗便利店投屏").setContentText(pendingPresentation ? "已收到投屏，打开应用开始播放" : playing ? "正在接收视频" : "后台待机 · 等待平板连接")
+        Notification notification = builder.setContentTitle("小米电视非官方投屏").setContentText(pendingPresentation ? "已收到投屏，打开应用开始播放" : playing ? "正在接收视频" : "后台待机 · 等待平板连接")
                 .setSmallIcon(R.drawable.app_icon).setContentIntent(pending).setOngoing(true)
                 .addAction(new Notification.Action.Builder(null,"退出接收",stopPending).build()).build();
         if (Build.VERSION.SDK_INT >= 29) startForeground(NOTICE_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE | (playing ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK : 0));
@@ -281,7 +281,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
                 player.stop(); player.clearMediaItems(); resetQuality();
                 currentUri = uri; metadata = args.getOrDefault("CurrentURIMetaData", ""); owner = peer;
                 String declared = MediaProbe.mime(Xml.resourceMime(metadata)); mime = MediaProbe.initialMime(uri,declared);
-                title = Xml.first(metadata, "title"); if (title.isBlank()) title = "小狗便利店投屏";
+                title = Xml.first(metadata, "title"); if (title.isBlank()) title = "小米电视非官方投屏";
                 received++; status = "已收到视频，等待播放指令"; error = ""; transportStatus = "OK";
                 log("已收到第 " + received + " 次播放地址，来源：" + parsed.getHost() + (declared.isEmpty() ? "" : "，投屏标记：" + declared));
                 if(!mime.equalsIgnoreCase(declared) && !mime.isEmpty()) log("按播放地址选择格式：" + mime);

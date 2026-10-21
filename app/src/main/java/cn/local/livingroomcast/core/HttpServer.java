@@ -67,7 +67,7 @@ public final class HttpServer implements AutoCloseable {
                 if (r.path.equals("/description.xml")) send(client, 200, Map.of(), "text/xml; charset=utf-8", Dlna.description(uuid, base), r.method.equals("HEAD"));
                 else if (r.path.startsWith("/service/") && r.path.endsWith(".xml") && Dlna.SERVICES.contains(r.path.substring(9, r.path.length()-4)))
                     send(client, 200, Map.of(), "text/xml; charset=utf-8", Dlna.scpd(r.path.substring(9, r.path.length()-4)), r.method.equals("HEAD"));
-                else if (r.path.equals("/")) send(client, 200, Map.of(), "text/html; charset=utf-8", "<!doctype html><meta charset='utf-8'><title>小狗便利店投屏</title><h1>小狗便利店投屏</h1><p>接收服务正在运行。在平板的软件中点TV/投屏，选择“小狗便利店投屏”</p><p>本页可打开只表示网络可达；直播兼容性需要实际投屏验证。</p>", r.method.equals("HEAD"));
+                else if (r.path.equals("/")) send(client, 200, Map.of(), "text/html; charset=utf-8", "<!doctype html><meta charset='utf-8'><title>小米电视非官方投屏</title><h1>小米电视非官方投屏</h1><p>接收服务正在运行。在平板的软件中点TV/投屏，选择“小米电视非官方投屏”</p><p>本页可打开只表示网络可达；直播兼容性需要实际投屏验证。</p>", r.method.equals("HEAD"));
                 else send(client, 404, Map.of(), "text/plain", "Not found");
             } else if (r.method.equals("POST") && r.path.startsWith("/control/")) {
                 String service = r.path.substring(9);
