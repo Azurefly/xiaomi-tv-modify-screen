@@ -54,7 +54,7 @@ public final class MainActivity extends Activity {
 
         waiting = column(); waiting.setPadding(dp(48),dp(25),dp(48),dp(22));
         root.addView(waiting,new FrameLayout.LayoutParams(-1,-1));
-        TextView eyebrow = text("LIVING ROOM  /  小米电视版 0.1.7",12,MINT); eyebrow.setLetterSpacing(.10f); waiting.addView(eyebrow);
+        TextView eyebrow = text("LIVING ROOM  /  小米电视版 0.1.8",12,MINT); eyebrow.setLetterSpacing(.10f); waiting.addView(eyebrow);
         TextView title = text("小米电视非官方投屏",36,WHITE); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); add(waiting,title,12);
         TextView instruction = text("在平板的软件中点TV/投屏，选择“小米电视非官方投屏”",19,WHITE); add(waiting,instruction,9);
         network = text("正在检查电视网络…",14,MUTED); add(waiting,network,13);
@@ -171,11 +171,11 @@ public final class MainActivity extends Activity {
         String message="等待接收服务启动。";
         if(service!=null) {
             ReceiverService.Ui u=service.ui();
-            message="小米电视非官方投屏 0.1.7-test\n电视：" + Build.MANUFACTURER + " " + Build.MODEL + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT
+            message="小米电视非官方投屏 0.1.8-test\n电视：" + Build.MANUFACTURER + " " + Build.MODEL + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT
                     + "\n接收器：" + (u.endpoint().isEmpty()?"尚未就绪":u.endpoint())
                     + "\n当前画质：" + u.quality() + " · " + u.qualityMode()
                     + "\n收到地址：" + u.received() + " 次\n本次连接：" + u.elapsed()
-                    + "\n\n排查顺序：\n1. 没收到搜索：检查同一网络、访客网络隔离。\n2. 能被搜索但没收到地址：可能存在发送端兼容限制。\n3. 已收到地址但不能播放：看下面错误代码。\n\n" + u.logs()
+                    + "\n\n排查顺序：\n1. 没收到搜索：检查同一网络、访客网络隔离。\n2. 能被搜索但没收到地址：可能存在发送端兼容限制。\n3. 已收到地址但不能播放：看下面错误代码。\n\n" + service.logs()
                     + "\n\n记录只保存在本次运行的内存中；不显示完整视频地址或登录信息。\n本地网页可打开只表示网络可达，实际投屏仍需测试。";
         }
         ScrollView scroll=new ScrollView(this); TextView content=text(message,14,WHITE); content.setPadding(dp(24),dp(12),dp(24),dp(20)); scroll.addView(content);

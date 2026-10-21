@@ -59,7 +59,7 @@
 bash build-local.sh
 ```
 
-输出为 `app/build/outputs/apk/debug/app-debug.apk`。构建脚本会自动生成本地测试签名，仓库不包含任何签名私钥。
+安装用的是 `app/build/outputs/apk/release/app-release.apk`（不可调试，经 R8 压缩优化）；`debug` 目录下的调试包仅供开发。构建脚本会自动生成本地测试签名，仓库不包含任何签名私钥。
 
 ## 反馈
 

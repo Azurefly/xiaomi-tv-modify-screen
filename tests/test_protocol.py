@@ -123,6 +123,20 @@ try:
             slow.sendall(b'X');time.sleep(2)
     except OSError: closed=True
     check('slow-drip request cut off by overall deadline',closed and time.monotonic()-started<16);slow.close()
+    idle=[socket.create_connection((parts.hostname,parts.port)) for _ in range(3)]
+    extra=socket.create_connection((parts.hostname,parts.port));extra.settimeout(3)
+    try: refused=extra.recv(1)==b''
+    except OSError: refused=True
+    check('fourth concurrent connection from one peer refused',refused)
+    for c in idle+[extra]: c.close()
+    time.sleep(0.3)
+    status,headers,_=request('SUBSCRIBE','/event/AVTransport',headers={'CALLBACK':f'<http://127.0.0.1:{callback.server_port}/events>','NT':'upnp:event','TIMEOUT':'Second-60'})
+    burst_sid=headers.get('SID');notifies.get(timeout=5)
+    for action in ('Play','Pause','Play','Pause','Play'): soap('AVTransport',action,{'InstanceID':'0','Speed':'1'})
+    time.sleep(1.5);burst=[]
+    while not notifies.empty(): burst.append(notifies.get_nowait())
+    check('rapid state changes coalesced into one NOTIFY with final state',len(burst)==1 and b'PLAYING' in burst[0][1] and b'PAUSED_PLAYBACK' not in burst[0][1])
+    request('UNSUBSCRIBE','/event/AVTransport',headers={'SID':burst_sid})
     status,_,body=soap('AVTransport','Stop',{'InstanceID':'0'})
     check('server remains usable after invalid inputs',status==200)
     print(f'PROTOCOL_OK: {len(checks)} checks')

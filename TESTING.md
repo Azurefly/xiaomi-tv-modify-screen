@@ -102,3 +102,9 @@ adb shell am instrument -w cn.local.livingroomcast.test/cn.local.livingroomcast.
 - 核心检查：协议 31 项（新增：单设备订阅上限、慢速请求整体超时）、格式 10 项、画质 8 项通过；单元检查新增本地目标地址拦截（回环、`localhost`、链路本地、组播、电视自身 IP、非标准数字 IP）及格式检查拒绝访问回环地址。
 - 安卓代码仅用 javac 对照 Android API 36 与 Media3 1.9.4 做了类型检查，未经过 Gradle 构建、Lint、模拟器或小米真机验证。
 - 待小米真机确认：解码器回退、内存缓冲上限、4K 面板“自动”选择 2160p、1900 端口被占用时的广播模式、MIUI 授权页跳转、开机待机、菜单键。
+
+## 0.1.8-test 安全与性能 · 2026-10-21
+
+- 协议 33 项（新增：单设备并发连接上限、快速状态变化合并为一次通知）、格式 10 项、画质 8 项通过。
+- Gradle assembleDebug / assembleRelease / lintDebug 通过（0 错误）。release 包确认不可调试、签名不变，R8 保留了 HLS / DASH 工厂类。
+- 未在模拟器或小米真机上运行 release 包；R8 压缩后的播放需真机确认。

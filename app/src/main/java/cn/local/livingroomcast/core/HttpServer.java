@@ -25,13 +25,16 @@ public final class HttpServer implements AutoCloseable {
     private final ThreadPoolExecutor workers = new ThreadPoolExecutor(2, 6, 30, TimeUnit.SECONDS, new ArrayBlockingQueue<>(24));
     private final ScheduledExecutorService events = Executors.newSingleThreadScheduledExecutor();
     private final Map<String, Subscription> subscriptions = new ConcurrentHashMap<>();
+    private final Map<InetAddress, Integer> active = new HashMap<>();
     private volatile boolean closed;
+    private boolean publishPending;
     private static final class Subscription {
         final String id = "uuid:" + UUID.randomUUID(), service;
         final URI callback;
         final InetAddress peer;
         volatile long expires;
         long sequence;
+        int failures;
         Subscription(String service, URI callback, InetAddress peer, int seconds) {
             this.service = service; this.callback = callback; this.peer = peer; renew(seconds);
         }
@@ -39,6 +42,12 @@ public final class HttpServer implements AutoCloseable {
     }
     private static final long REQUEST_DEADLINE_NANOS = TimeUnit.SECONDS.toNanos(10);
     private static final int SUBSCRIPTIONS_PER_PEER = 4;
+    /** One LAN host may not occupy every worker, even within the request deadline. */
+    private static final int CONNECTIONS_PER_PEER = 3;
+    /** State changes within this window share one GENA NOTIFY round (UPnP AV moderates LastChange to ~5 Hz). */
+    private static final long PUBLISH_COALESCE_MS = 200;
+    /** A subscriber that misses this many NOTIFYs in a row is dropped instead of stalling every later round. */
+    private static final int MAX_NOTIFY_FAILURES = 3;
     private record Request(String method, String path, Map<String,String> headers, String body, InetAddress peer) {}
     public HttpServer(InetAddress address, int port, String uuid, Dlna.Controller controller, Consumer<String> log) throws IOException {
         this.uuid = uuid; this.controller = controller; this.log = log;
@@ -52,11 +61,23 @@ public final class HttpServer implements AutoCloseable {
             while (!closed) {
                 try {
                     Socket client = socket.accept();
-                    try { workers.execute(() -> handle(client)); }
-                    catch (RejectedExecutionException busy) { client.close(); }
+                    InetAddress peer = client.getInetAddress();
+                    if (!acquire(peer)) { client.close(); continue; }
+                    try { workers.execute(() -> { try { handle(client); } finally { release(peer); } }); }
+                    catch (RejectedExecutionException busy) { release(peer); client.close(); }
                 } catch (IOException e) { if (!closed) log.accept("接收连接异常"); }
             }
         }, "cast-http").start();
+    }
+    private boolean acquire(InetAddress peer) {
+        synchronized (active) {
+            int n = active.getOrDefault(peer, 0);
+            if (n >= CONNECTIONS_PER_PEER) return false;
+            active.put(peer, n + 1); return true;
+        }
+    }
+    private void release(InetAddress peer) {
+        synchronized (active) { int n = active.getOrDefault(peer, 1) - 1; if (n <= 0) active.remove(peer); else active.put(peer, n); }
     }
     private void handle(Socket client) {
         try (client) {
@@ -123,7 +144,14 @@ public final class HttpServer implements AutoCloseable {
         if (sid == null) events.schedule(() -> notifyOne(s), 150, TimeUnit.MILLISECONDS);
     }
     public void publish() {
-        if (!closed) try { events.execute(() -> subscriptions.values().forEach(this::notifyOne)); } catch (RejectedExecutionException ignored) { }
+        if (closed || subscriptions.isEmpty()) return;
+        synchronized (this) { if (publishPending) return; publishPending = true; }
+        try {
+            events.schedule(() -> {
+                synchronized (this) { publishPending = false; }
+                subscriptions.values().forEach(this::notifyOne);
+            }, PUBLISH_COALESCE_MS, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException ignored) { }
     }
     private void notifyOne(Subscription s) {
         if (closed || !subscriptions.containsKey(s.id)) return;
@@ -140,8 +168,12 @@ public final class HttpServer implements AutoCloseable {
                 connection.getOutputStream().write(header.getBytes(StandardCharsets.US_ASCII)); connection.getOutputStream().write(body); connection.getOutputStream().flush();
                 String status = line(connection.getInputStream(), 1024, Long.MAX_VALUE);
                 if (status == null || !status.matches("HTTP/1\\.[01] 2\\d\\d.*")) subscriptions.remove(s.id);
+                else s.failures = 0;
             }
-        } catch (Exception ignored) { /* A sleeping sender may temporarily miss an event; retain until expiry. */ }
+        } catch (Exception unreachable) {
+            // A sleeping sender may miss a few events; a gone one would otherwise cost 2 s per round until expiry.
+            if (++s.failures >= MAX_NOTIFY_FAILURES) subscriptions.remove(s.id);
+        }
     }
     private static Request read(Socket client) throws Exception {
         InputStream input = new BufferedInputStream(client.getInputStream());

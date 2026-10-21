@@ -39,12 +39,13 @@ public final class ReceiverService extends Service implements Dlna.Controller {
     private ConnectivityManager connectivity;
     private ConnectivityManager.NetworkCallback networkCallback;
     private WifiManager.MulticastLock multicastLock;
-    private WifiManager.WifiLock wifiLock;
     private AudioManager audio;
     private volatile HttpServer http;
     private SsdpServer ssdp;
     private volatile boolean alive;
-    private String address = "", endpoint = "", uuid, currentUri = "", metadata = "", title = "", mime = "";
+    /** Read by player loader threads through {@link GuardedDataSource}. */
+    private volatile String address = "";
+    private String endpoint = "", uuid, currentUri = "", metadata = "", title = "", mime = "";
     private String status = "正在启动接收服务", error = "", transportStatus = "OK";
     private Runnable observer;
     private String selectedQuality = "";
@@ -57,7 +58,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
     private long sessionStarted, playingSince;
     private Runnable pendingRetry;
     public final class LocalBinder extends Binder { ReceiverService get() { return ReceiverService.this; } }
-    public record Ui(String status, String error, String address, String endpoint, String title, int received, String logs, String elapsed, boolean video, String quality, String qualityMode, int mediaGeneration) {}
+    public record Ui(String status, String error, String address, String endpoint, String title, int received, String elapsed, boolean video, String quality, String qualityMode, int mediaGeneration) {}
     public record QualityMenu(int generation, List<QualityCatalog.Choice> choices, String selectedKey, boolean loading) {}
 
     @Override public void onCreate() {
@@ -75,7 +76,7 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         // MediaTek TV SoCs (most Xiaomi TVs) sometimes fail to configure the first hardware decoder; try the next one.
         DefaultRenderersFactory renderers = new DefaultRenderersFactory(this).setEnableDecoderFallback(true);
         player = new ExoPlayer.Builder(this, renderers)
-                .setMediaSourceFactory(new DefaultMediaSourceFactory(new DefaultDataSource.Factory(this, httpFactory)))
+                .setMediaSourceFactory(new DefaultMediaSourceFactory(new GuardedDataSource.Factory(httpFactory, () -> address)))
                 .setLoadControl(new DefaultLoadControl.Builder().setBufferDurationsMs(12000,45000,1500,3000)
                         .setTargetBufferBytes(bufferBudgetBytes()).setPrioritizeTimeOverSizeThresholds(false).build())
                 .setWakeMode(C.WAKE_MODE_NETWORK).build();
@@ -114,6 +115,9 @@ public final class ReceiverService extends Service implements Dlna.Controller {
                 if (response == 401 || response == 403 || response == 404 || response == 410) {
                     fail("直播地址已失效或服务器拒绝访问，请在发送端 App 重新投屏。"); return;
                 }
+                if (e.errorCode == PlaybackException.ERROR_CODE_IO_NO_PERMISSION) {
+                    fail("播放地址或其中的分片指向电视本机，已拒绝访问。"); return;
+                }
                 if (!formatProbed && e.errorCode >= 3001 && e.errorCode <= 3004) {
                     inspectFailedMedia(); return;
                 }
@@ -124,9 +128,9 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         });
         WifiManager wifi = (WifiManager)getApplicationContext().getSystemService(WIFI_SERVICE);
         try {
+            // Discovery needs multicast while idle; the Wi-Fi performance lock is held by the player only while playing.
             multicastLock = wifi.createMulticastLock("LivingRoomCast.discovery"); multicastLock.setReferenceCounted(false); multicastLock.acquire();
-            wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "LivingRoomCast.playback"); wifiLock.setReferenceCounted(false); wifiLock.acquire();
-        } catch (RuntimeException e) { log("系统未允许 Wi-Fi 保持或组播锁，继续尝试接收"); }
+        } catch (RuntimeException e) { log("系统未允许组播锁，继续尝试接收"); }
         connectivity = (ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);
         networkCallback = new ConnectivityManager.NetworkCallback() {
             @Override public void onAvailable(Network network) { main.postDelayed(ReceiverService.this::refreshNetwork, 500); }
@@ -486,7 +490,9 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         stopPlayback();
         stopSelf();
     }
-    public Ui ui() { return new Ui(status,error,address,endpoint,title,received,String.join("\n",history),sessionStarted==0?"00:00:00":Dlna.time(SystemClock.elapsedRealtime()-sessionStarted),!currentUri.isEmpty(),actualQuality(),qualityMode(),mediaGeneration); }
+    public Ui ui() { return new Ui(status,error,address,endpoint,title,received,sessionStarted==0?"00:00:00":Dlna.time(SystemClock.elapsedRealtime()-sessionStarted),!currentUri.isEmpty(),actualQuality(),qualityMode(),mediaGeneration); }
+    /** Built on demand for the details dialog rather than on every once-a-second UI refresh. */
+    public String logs() { return String.join("\n", history); }
     private void changed() { if(observer!=null) observer.run(); HttpServer server=http; if(server!=null)server.publish(); }
     private void log(String value) {
         if(Looper.myLooper()!=main.getLooper()){main.post(()->log(value));return;}
@@ -506,7 +512,6 @@ public final class ReceiverService extends Service implements Dlna.Controller {
         networkWork.execute(this::closeNetwork); networkWork.shutdown();
         if(player!=null)player.release();
         if(multicastLock!=null && multicastLock.isHeld())multicastLock.release();
-        if(wifiLock!=null && wifiLock.isHeld())wifiLock.release();
         stopForeground(true); super.onDestroy();
     }
 }
