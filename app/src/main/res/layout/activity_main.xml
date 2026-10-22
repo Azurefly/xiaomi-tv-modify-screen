@@ -1,0 +1,504 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V2 · tvOS language. Four layers, one visible at a time:
+  player surface → standby page → error page → HUD (+ transient connecting pill).
+  Structure follows the 1920x1080 design; every size is already halved to dp/sp.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/castRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/cast_background">
+
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/castPlayer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:focusable="false"
+        app:keep_content_on_player_reset="false"
+        app:use_controller="false" />
+
+    <!-- ============ 待机等待 ============ -->
+    <LinearLayout
+        android:id="@+id/castWaiting"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingLeft="@dimen/cast_screen_h"
+        android:paddingTop="@dimen/cast_screen_v"
+        android:paddingRight="@dimen/cast_screen_h"
+        android:paddingBottom="@dimen/cast_screen_v">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                style="@style/CastText.Label"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:letterSpacing="0.1"
+                android:text="@string/cast_brand_eyebrow" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_pill"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingLeft="11dp"
+                android:paddingTop="7dp"
+                android:paddingRight="13dp"
+                android:paddingBottom="7dp">
+
+                <View
+                    android:layout_width="6dp"
+                    android:layout_height="6dp"
+                    android:background="@drawable/bg_dot" />
+
+                <TextView
+                    android:id="@+id/castWaitingStatus"
+                    style="@style/CastText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="7dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="@string/cast_status_starting"
+                    android:textColor="@color/cast_text_secondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Hero: everything on one centre axis, like tvOS setup screens -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <FrameLayout
+                android:layout_width="@dimen/cast_badge"
+                android:layout_height="@dimen/cast_badge"
+                android:background="@drawable/bg_icon_badge">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_airplay" />
+            </FrameLayout>
+
+            <TextView
+                style="@style/CastText.Display"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/cast_gap_m"
+                android:text="@string/cast_waiting_title" />
+
+            <TextView
+                style="@style/CastText.Body"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/cast_gap_s"
+                android:text="@string/cast_waiting_subtitle"
+                android:textSize="16sp" />
+
+            <TextView
+                style="@style/CastText.Note"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/cast_gap_xs"
+                android:text="@string/cast_waiting_meta" />
+
+            <!-- The address is the first thing asked for during troubleshooting: keep it above the fold. -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/cast_gap_l"
+                android:background="@drawable/bg_glass_card"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingLeft="18dp"
+                android:paddingTop="13dp"
+                android:paddingRight="20dp"
+                android:paddingBottom="13dp">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/CastText.Label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/cast_label_address" />
+
+                    <TextView
+                        android:id="@+id/castAddress"
+                        style="@style/CastText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:fontFamily="sans-serif-medium"
+                        android:textSize="17sp" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="@dimen/cast_hairline"
+                    android:layout_height="24dp"
+                    android:layout_marginLeft="18dp"
+                    android:layout_marginRight="18dp"
+                    android:background="@color/cast_divider" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        style="@style/CastText.Label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/cast_label_received" />
+
+                    <TextView
+                        android:id="@+id/castReceived"
+                        style="@style/CastText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:textSize="17sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/castWaitingError"
+                style="@style/CastText.Note"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/cast_gap_m"
+                android:gravity="center"
+                android:maxLines="2"
+                android:textColor="@color/cast_danger"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/castStandby"
+                    style="@style/CastButton.Primary"
+                    android:text="@string/cast_btn_standby" />
+
+                <Button
+                    android:id="@+id/castDetails"
+                    style="@style/CastButton"
+                    android:layout_marginStart="10dp"
+                    android:text="@string/cast_btn_details" />
+
+                <Button
+                    android:id="@+id/castBoot"
+                    style="@style/CastButton"
+                    android:layout_marginStart="10dp"
+                    android:text="@string/cast_btn_boot_off" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <Button
+                    android:id="@+id/castExit"
+                    style="@style/CastButton.Danger"
+                    android:text="@string/cast_btn_exit" />
+            </LinearLayout>
+
+            <TextView
+                style="@style/CastText.Note"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/cast_waiting_hint" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- ============ 播放失败 ============ -->
+    <LinearLayout
+        android:id="@+id/castError"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:paddingLeft="@dimen/cast_screen_h"
+        android:paddingRight="@dimen/cast_screen_h"
+        android:visibility="gone">
+
+        <FrameLayout
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="@drawable/bg_circle_button">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:fontFamily="sans-serif-medium"
+                android:text="!"
+                android:textColor="@color/cast_text_primary"
+                android:textSize="18sp" />
+        </FrameLayout>
+
+        <TextView
+            style="@style/CastText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/cast_gap_m"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="-0.01"
+            android:text="@string/cast_error_title"
+            android:textSize="28sp" />
+
+        <TextView
+            android:id="@+id/castErrorSubtitle"
+            style="@style/CastText.Note"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center"
+            android:maxLines="2" />
+
+        <TextView
+            style="@style/CastText.Body"
+            android:layout_width="450dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center"
+            android:text="@string/cast_error_body" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/cast_gap_l"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/castRetry"
+                style="@style/CastButton.Primary"
+                android:text="@string/cast_btn_retry" />
+
+            <Button
+                android:id="@+id/castErrorDetails"
+                style="@style/CastButton"
+                android:layout_marginStart="9dp"
+                android:text="@string/cast_btn_view_details" />
+        </LinearLayout>
+
+        <TextView
+            style="@style/CastText.Note"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/cast_gap_m"
+            android:text="@string/cast_error_caption" />
+    </LinearLayout>
+
+    <!-- ============ 连接提示（3 秒） ============ -->
+    <LinearLayout
+        android:id="@+id/castConnecting"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="@dimen/cast_screen_h"
+        android:layout_marginTop="32dp"
+        android:background="@drawable/bg_pill"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="13dp"
+        android:paddingTop="9dp"
+        android:paddingRight="15dp"
+        android:paddingBottom="9dp"
+        android:visibility="gone">
+
+        <View
+            android:layout_width="6dp"
+            android:layout_height="6dp"
+            android:background="@drawable/bg_dot" />
+
+        <TextView
+            style="@style/CastText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="7dp"
+            android:text="@string/cast_connecting_pill"
+            android:textColor="@color/cast_text_primary"
+            android:textSize="12sp" />
+
+        <View
+            android:layout_width="@dimen/cast_hairline"
+            android:layout_height="11dp"
+            android:layout_marginLeft="8dp"
+            android:layout_marginRight="8dp"
+            android:background="@color/cast_divider" />
+
+        <TextView
+            android:id="@+id/castConnectingQuality"
+            style="@style/CastText.Note"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <!-- ============ 播放浮层 HUD ============ -->
+    <LinearLayout
+        android:id="@+id/castHud"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@drawable/bg_hud_scrim"
+        android:orientation="vertical"
+        android:paddingLeft="@dimen/cast_screen_h"
+        android:paddingTop="72dp"
+        android:paddingRight="@dimen/cast_screen_h"
+        android:paddingBottom="@dimen/cast_screen_v"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/castHudTitle"
+            style="@style/CastText.Title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2" />
+
+        <TextView
+            android:id="@+id/castHudMeta"
+            style="@style/CastText.Note"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:maxLines="2" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/cast_gap_l"
+            android:background="@drawable/bg_panel"
+            android:orientation="vertical"
+            android:paddingLeft="@dimen/cast_hud_panel_padding_h"
+            android:paddingTop="@dimen/cast_hud_panel_padding_v"
+            android:paddingRight="@dimen/cast_hud_panel_padding_h"
+            android:paddingBottom="@dimen/cast_hud_panel_padding_v">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/castHudPosition"
+                    style="@style/CastText.Note"
+                    android:layout_width="78dp"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium" />
+
+                <!-- Read-only: a DLNA sink can forward the URI but cannot seek. -->
+                <LinearLayout
+                    android:id="@+id/castHudTrack"
+                    android:layout_width="0dp"
+                    android:layout_height="3dp"
+                    android:layout_marginLeft="@dimen/cast_gap_s"
+                    android:layout_marginRight="@dimen/cast_gap_s"
+                    android:layout_weight="1"
+                    android:orientation="horizontal">
+
+                    <View
+                        android:id="@+id/castHudPlayed"
+                        android:layout_width="0dp"
+                        android:layout_height="3dp"
+                        android:layout_weight="0"
+                        android:background="@drawable/bg_track_played" />
+
+                    <View
+                        android:id="@+id/castHudRest"
+                        android:layout_width="0dp"
+                        android:layout_height="3dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_track" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/castHudQuality"
+                    style="@style/CastText.Note"
+                    android:layout_width="112dp"
+                    android:layout_height="wrap_content"
+                    android:gravity="end"
+                    android:maxLines="1" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/cast_gap_m"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/castHudPause"
+                    android:layout_width="@dimen/cast_circle_control"
+                    android:layout_height="@dimen/cast_circle_control"
+                    android:background="@drawable/bg_circle_button"
+                    android:contentDescription="@string/cast_btn_pause"
+                    android:padding="9dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/ic_pause"
+                    android:tint="@color/cast_btn_text" />
+
+                <Button
+                    android:id="@+id/castHudQualityButton"
+                    style="@style/CastButton"
+                    android:layout_marginStart="9dp"
+                    android:text="@string/cast_btn_quality" />
+
+                <Button
+                    android:id="@+id/castHudDetails"
+                    style="@style/CastButton"
+                    android:layout_marginStart="9dp"
+                    android:text="@string/cast_btn_details" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <Button
+                    android:id="@+id/castHudEnd"
+                    style="@style/CastButton.Danger"
+                    android:text="@string/cast_btn_end" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            style="@style/CastText.Note"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/cast_hud_hint" />
+    </LinearLayout>
+</FrameLayout>

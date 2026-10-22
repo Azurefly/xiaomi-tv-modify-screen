@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="6dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <TextView
+        android:id="@+id/castFactLabel"
+        style="@style/CastText.Label"
+        android:layout_width="82dp"
+        android:layout_height="wrap_content"
+        android:maxLines="1" />
+
+    <TextView
+        android:id="@+id/castFactValue"
+        style="@style/CastText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:maxLines="2"
+        android:textColor="@color/cast_text_primary"
+        android:textSize="13sp" />
+</LinearLayout>

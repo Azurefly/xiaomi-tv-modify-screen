@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Destructive stays outlined at rest; focus still uses the white block so there is only one highlight. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/cast_focus_fill" />
+            <corners android:radius="@dimen/cast_radius_button" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#0DFFFFFF" />
+            <stroke android:width="@dimen/cast_hairline" android:color="#47FF453A" />
+            <corners android:radius="@dimen/cast_radius_button" />
+        </shape>
+    </item>
+</selector>

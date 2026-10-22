@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Focus is duplicated down to the children so one row reads as a single white block. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    style="@style/CastRow">
+
+    <TextView
+        android:id="@+id/castRowLabel"
+        style="@style/CastText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:duplicateParentState="true"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="@color/cast_row_label"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/castRowHint"
+        style="@style/CastText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:duplicateParentState="true"
+        android:maxLines="1"
+        android:textColor="@color/cast_row_hint"
+        android:textSize="11sp" />
+
+    <ImageView
+        android:id="@+id/castRowCheck"
+        android:layout_width="12dp"
+        android:layout_height="12dp"
+        android:layout_marginStart="8dp"
+        android:duplicateParentState="true"
+        android:importantForAccessibility="no"
+        android:src="@drawable/ic_check"
+        android:tint="@color/cast_btn_text"
+        android:visibility="gone" />
+</LinearLayout>

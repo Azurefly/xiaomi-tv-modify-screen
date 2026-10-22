@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Design tokens V2 (tvOS language): layers by luminance, never by hue. -->
+<resources>
+    <color name="cast_background">#08080A</color>
+
+    <!-- Text: primary / secondary / tertiary carry the whole hierarchy -->
+    <color name="cast_text_primary">#F5F5F7</color>
+    <color name="cast_text_secondary">#99FFFFFF</color>
+    <color name="cast_text_tertiary">#5CFFFFFF</color>
+
+    <!-- Focus: white fill + dark ink. This is the only highlight on screen. -->
+    <color name="cast_focus_fill">#F5F5F7</color>
+    <color name="cast_focus_ink">#0A0A0C</color>
+
+    <!-- Glass: 7% fill over near-black, 12% hairline -->
+    <color name="cast_glass_fill">#12FFFFFF</color>
+    <color name="cast_glass_stroke">#1FFFFFFF</color>
+    <color name="cast_glass_fill_strong">#1AFFFFFF</color>
+    <color name="cast_divider">#1FFFFFFF</color>
+
+    <!-- Semantics -->
+    <color name="cast_danger">#FF453A</color>
+    <color name="cast_danger_ink">#D70015</color>
+    <color name="cast_status_green">#32D74B</color>
+
+    <!-- Surfaces -->
+    <color name="cast_dialog_surface">#141418</color>
+    <color name="cast_log_fill">#0AFFFFFF</color>
+    <color name="cast_log_stroke">#12FFFFFF</color>
+    <color name="cast_track">#2EFFFFFF</color>
+    <color name="cast_track_played">#D9F5F5F7</color>
+
+    <!-- HUD scrim: transparent above, near-opaque at the bottom edge -->
+    <color name="cast_scrim_transparent">#00000000</color>
+    <color name="cast_scrim_mid">#8C000000</color>
+    <color name="cast_scrim_bottom">#EB000000</color>
+</resources>

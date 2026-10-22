@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_panel"
+    android:orientation="vertical"
+    android:padding="@dimen/cast_panel_padding">
+
+    <TextView
+        style="@style/CastText.DialogTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/cast_quality_title" />
+
+    <TextView
+        android:id="@+id/castQualitySubtitle"
+        style="@style/CastText.Note"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/cast_hairline"
+        android:layout_marginTop="14dp"
+        android:background="@color/cast_divider" />
+
+    <LinearLayout
+        android:id="@+id/castQualityRows"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="vertical" />
+
+    <TextView
+        android:id="@+id/castQualityNote"
+        style="@style/CastText.Note"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp" />
+</LinearLayout>

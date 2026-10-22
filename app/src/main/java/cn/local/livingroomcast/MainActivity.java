@@ -6,242 +6,532 @@
 package cn.local.livingroomcast;
 
 import android.Manifest;
-import android.app.*;
-import android.content.*;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.content.ComponentName;
+import android.content.Intent;
+import android.content.ServiceConnection;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
-import android.os.*;
+import android.graphics.drawable.ColorDrawable;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
 import android.provider.Settings;
 import android.net.Uri;
-import android.view.*;
-import android.widget.*;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
+import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.media3.common.C;
+import androidx.media3.common.Player;
 import androidx.media3.ui.PlayerView;
 
+import cn.local.livingroomcast.core.Dlna;
+import cn.local.livingroomcast.core.QualityCatalog;
+
+/**
+ * Single screen, four layers: standby, error, HUD and a transient connecting pill.
+ * All styling lives in res/ (colors, dimens, styles) so the visual language can be
+ * swapped without touching behaviour. See design/README.md for the source of truth.
+ */
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 public final class MainActivity extends Activity {
-    private static final int INK = Color.rgb(16,27,32), MINT = Color.rgb(140,232,195), WHITE = Color.rgb(239,246,243), MUTED = Color.rgb(173,193,193);
+    private static final long HUD_TIMEOUT_MS = 2000;
+    private static final long CONNECTING_HINT_MS = 3000;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private ReceiverService service;
     private boolean bound, video;
+
     private PlayerView playerView;
-    private LinearLayout waiting, hud;
-    private TextView status, network, progress, playbackTitle, playbackStatus, playbackTime, playbackQuality;
-    private Button pause, qualityButton;
-    private AlertDialog modalDialog;
+    private View waiting, errorPanel, connecting, hud;
+    private TextView waitingStatus, address, received, waitingError, connectingQuality, errorSubtitle;
+    private TextView hudTitle, hudMeta, hudPosition, hudQuality;
+    private View hudTrack, hudPlayed, hudRest;
+    private ImageButton hudPause;
+    private Button standbyButton, detailsButton, bootButton, exitButton, retryButton;
+    private Button hudQualityButton, hudDetailsButton, hudEndButton;
+
+    private Dialog modalDialog;
     private int qualityDialogSession = -1;
-    private static final long HUD_TIMEOUT_MS = 2000;
-    private boolean hudRequested;
+    private boolean hudRequested, errorFocused;
     private int displayedSession = -1;
+
     private final Runnable hideHud = () -> {
-        if(modalDialog!=null)return;
-        hudRequested=false;
-        if(service!=null && service.player().isPlaying() && service.ui().error().isEmpty() && service.player().getPlayerError()==null)hud.setVisibility(View.GONE);
+        if (modalDialog != null) return;
+        hudRequested = false;
+        if (service != null && service.player().isPlaying() && service.ui().error().isEmpty() && service.player().getPlayerError() == null) {
+            hud.setVisibility(View.GONE);
+        }
     };
+    private final Runnable hideConnecting = () -> connecting.setVisibility(View.GONE);
+
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
-            service = ((ReceiverService.LocalBinder)binder).get(); playerView.setPlayer(service.player()); service.observe(MainActivity.this::render);
+            service = ((ReceiverService.LocalBinder) binder).get();
+            playerView.setPlayer(service.player());
+            service.observe(MainActivity.this::render);
         }
-        @Override public void onServiceDisconnected(ComponentName name) { service=null; status.setText("接收服务已停止，请退出后重新打开"); }
+        @Override public void onServiceDisconnected(ComponentName name) {
+            service = null;
+            waitingStatus.setText(R.string.cast_service_stopped);
+            waitingError.setVisibility(View.VISIBLE);
+            waitingError.setText(R.string.cast_service_stopped);
+        }
     };
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-        FrameLayout root = new FrameLayout(this); root.setBackgroundColor(INK); setContentView(root);
-        playerView = new PlayerView(this); playerView.setUseController(false); playerView.setKeepContentOnPlayerReset(false); playerView.setFocusable(false);
-        root.addView(playerView, new FrameLayout.LayoutParams(-1,-1));
+        setContentView(R.layout.activity_main);
 
-        waiting = column(); waiting.setPadding(dp(48),dp(25),dp(48),dp(22));
-        root.addView(waiting,new FrameLayout.LayoutParams(-1,-1));
-        TextView eyebrow = text("LIVING ROOM  /  小米电视版 0.1.8",12,MINT); eyebrow.setLetterSpacing(.10f); waiting.addView(eyebrow);
-        TextView title = text("小米电视非官方投屏",36,WHITE); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); add(waiting,title,12);
-        TextView instruction = text("在平板的软件中点TV/投屏，选择“小米电视非官方投屏”",19,WHITE); add(waiting,instruction,9);
-        network = text("正在检查电视网络…",14,MUTED); add(waiting,network,13);
+        playerView = findViewById(R.id.castPlayer);
+        playerView.setFocusable(false);
 
-        LinearLayout card=column(); card.setPadding(dp(18),dp(12),dp(18),dp(12)); card.setBackground(background(0xff1d3038,12));
-        status=text("正在启动接收服务",21,MINT); card.addView(status);
-        progress=text("首次使用：平板和电视连接同一家庭网络。",14,MUTED); progress.setMaxLines(4); add(card,progress,7);
-        add(waiting,card,18);
-        Space space = new Space(this); waiting.addView(space,new LinearLayout.LayoutParams(1,0,1));
-        LinearLayout buttons = new LinearLayout(this); buttons.setOrientation(LinearLayout.HORIZONTAL);
-        Button standby=button("后台待机",v->standby()); buttons.addView(standby);
-        Button details=button("连接详情",v->details()); LinearLayout.LayoutParams detailParams=new LinearLayout.LayoutParams(-2,dp(48)); detailParams.leftMargin=dp(12); buttons.addView(details,detailParams);
-        Button boot=button(bootLabel(),v->toggleBootStandby((Button)v)); LinearLayout.LayoutParams bootParams=new LinearLayout.LayoutParams(-2,dp(48)); bootParams.leftMargin=dp(12); buttons.addView(boot,bootParams);
-        Button exit=button("退出接收",v->confirmExit()); LinearLayout.LayoutParams exitParams=new LinearLayout.LayoutParams(-2,dp(48)); exitParams.leftMargin=dp(12); buttons.addView(exit,exitParams);
-        waiting.addView(buttons);
-        TextView note=text("按 Home 可后台待机；“退出接收”会停止服务。自动打开新投屏可在“后台待机”中授权。",12,MUTED); add(waiting,note,8);
+        waiting = findViewById(R.id.castWaiting);
+        waitingStatus = findViewById(R.id.castWaitingStatus);
+        address = findViewById(R.id.castAddress);
+        received = findViewById(R.id.castReceived);
+        waitingError = findViewById(R.id.castWaitingError);
 
-        hud=column(); hud.setPadding(dp(36),dp(24),dp(36),dp(24)); hud.setBackgroundColor(0x99081016);
-        root.addView(hud,new FrameLayout.LayoutParams(-1,-1)); hud.setVisibility(View.GONE);
-        playbackTitle=text("小米电视非官方投屏",25,WHITE); playbackTitle.setMaxLines(2); hud.addView(playbackTitle);
-        playbackStatus=text("正在连接直播",17,MINT); add(hud,playbackStatus,8);
-        playbackTime=text("",13,MUTED); add(hud,playbackTime,6);
-        playbackQuality=text("当前画质  正在识别…",14,WHITE); add(hud,playbackQuality,6);
-        hud.addView(new Space(this),new LinearLayout.LayoutParams(1,0,1));
-        LinearLayout controls=new LinearLayout(this); controls.setOrientation(LinearLayout.HORIZONTAL);
-        pause=button("暂停 / 继续",v->{if(service!=null)service.togglePause();showHud();}); controls.addView(pause);
-        qualityButton=button("清晰度",v->quality()); LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(-2,dp(48));qp.leftMargin=dp(12);controls.addView(qualityButton,qp);
-        Button diagnostics=button("连接详情",v->details()); LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,dp(48)); cp.leftMargin=dp(12); controls.addView(diagnostics,cp);
-        Button disconnect=button("结束投屏",v->{if(service!=null)service.stopPlayback();}); LinearLayout.LayoutParams dp=new LinearLayout.LayoutParams(-2,dp(48));dp.leftMargin=dp(12);controls.addView(disconnect,dp);
-        hud.addView(controls); add(hud,text("方向键唤出操作栏 · 返回键结束本次播放",12,MUTED),10);
-        details.requestFocus();
-        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},21);
+        errorPanel = findViewById(R.id.castError);
+        errorSubtitle = findViewById(R.id.castErrorSubtitle);
+        retryButton = findViewById(R.id.castRetry);
+
+        connecting = findViewById(R.id.castConnecting);
+        connectingQuality = findViewById(R.id.castConnectingQuality);
+
+        hud = findViewById(R.id.castHud);
+        hudTitle = findViewById(R.id.castHudTitle);
+        hudMeta = findViewById(R.id.castHudMeta);
+        hudPosition = findViewById(R.id.castHudPosition);
+        hudQuality = findViewById(R.id.castHudQuality);
+        hudTrack = findViewById(R.id.castHudTrack);
+        hudPlayed = findViewById(R.id.castHudPlayed);
+        hudRest = findViewById(R.id.castHudRest);
+        hudPause = findViewById(R.id.castHudPause);
+
+        standbyButton = findViewById(R.id.castStandby);
+        detailsButton = findViewById(R.id.castDetails);
+        bootButton = findViewById(R.id.castBoot);
+        exitButton = findViewById(R.id.castExit);
+        hudQualityButton = findViewById(R.id.castHudQualityButton);
+        hudDetailsButton = findViewById(R.id.castHudDetails);
+        hudEndButton = findViewById(R.id.castHudEnd);
+
+        bootButton.setText(bootLabel());
+        standbyButton.setOnClickListener(v -> standby());
+        detailsButton.setOnClickListener(v -> details());
+        bootButton.setOnClickListener(v -> toggleBootStandby(bootButton));
+        exitButton.setOnClickListener(v -> confirmExit());
+        retryButton.setOnClickListener(v -> { if (service != null) service.reconnect(); });
+        contentClick(R.id.castErrorDetails, v -> details());
+        hudPause.setOnClickListener(v -> { if (service != null) service.togglePause(); showHud(); });
+        hudQualityButton.setOnClickListener(v -> quality());
+        hudDetailsButton.setOnClickListener(v -> details());
+        hudEndButton.setOnClickListener(v -> { if (service != null) service.stopPlayback(); });
+
+        bindFocus(standbyButton, detailsButton, bootButton, exitButton, retryButton,
+                hudQualityButton, hudDetailsButton, hudEndButton, hudPause);
+        standbyButton.requestFocus();
+
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 21);
+        }
     }
+
     @Override protected void onStart() {
         super.onStart();
-        Intent intent=new Intent(this,ReceiverService.class);
+        Intent intent = new Intent(this, ReceiverService.class);
         try {
-            if(Build.VERSION.SDK_INT>=26)startForegroundService(intent); else startService(intent);
-            bound=bindService(intent,connection,BIND_AUTO_CREATE);
-        } catch(RuntimeException e) { status.setText("启动失败，请退出重开"); progress.setText(e.getClass().getSimpleName()); }
-    }
-    private void render() {
-        if(service==null)return;
-        if(service.isShuttingDown()) { finish(); return; }
-        ReceiverService.Ui ui=service.ui();
-        if (modalDialog != null && qualityDialogSession >= 0 && (!ui.video() || qualityDialogSession != ui.mediaGeneration())) modalDialog.dismiss();
-        status.setText(ui.status());
-        network.setText(ui.address().isEmpty()?"请连接家庭 Wi-Fi，或将电视接入同一路由器的网线。":"电视地址  " + ui.address() + "    ·    DLNA 接收");
-        String summary = "已收到 " + ui.received() + " 次播放地址";
-        progress.setText(ui.error().isEmpty()?summary + "\n若设备列表没有本机，请先关闭电视自带投屏或当贝等其他接收，再重新搜索。":ui.error());
-        playbackTitle.setText(ui.title());
-        playbackStatus.setText(ui.status() + (ui.error().isEmpty()?"":"\n" + ui.error()));
-        playbackTime.setText("本次连接  " + ui.elapsed());
-        playbackQuality.setText("当前画质  " + ui.quality() + "    ·    " + ui.qualityMode());
-        boolean changed=video!=ui.video(); video=ui.video();
-        waiting.setVisibility(video?View.GONE:View.VISIBLE);
-        boolean newSession=changed || displayedSession!=ui.mediaGeneration();
-        if(newSession) { hudRequested=false; handler.removeCallbacks(hideHud); }
-        displayedSession=ui.mediaGeneration();
-        if(video) {
-            if(newSession) { hud.setVisibility(View.VISIBLE); pause.requestFocus(); }
-            boolean playing=service.player().isPlaying();
-            boolean paused=service.player().getPlaybackState()==androidx.media3.common.Player.STATE_READY && !service.player().getPlayWhenReady();
-            boolean attention=paused || !ui.error().isEmpty() || service.player().getPlayerError()!=null
-                    || service.player().getPlaybackState()==androidx.media3.common.Player.STATE_ENDED;
-            if(attention)hud.setVisibility(View.VISIBLE);
-            else if(playing && !hudRequested && modalDialog==null) {
-                // A successful cast should reveal the video immediately, without a status overlay.
-                handler.removeCallbacks(hideHud);hud.setVisibility(View.GONE);
-            }
-        } else { hud.setVisibility(View.GONE); if(changed)waiting.getChildAt(waiting.getChildCount()-2).requestFocus(); }
-    }
-    private void showHud() {
-        if(!video)return;
-        hudRequested=true;hud.setVisibility(View.VISIBLE);handler.removeCallbacks(hideHud);
-        if(modalDialog==null)handler.postDelayed(hideHud,HUD_TIMEOUT_MS);
-    }
-    private void quality() {
-        if(service==null || modalDialog!=null)return;
-        handler.removeCallbacks(hideHud);
-        ReceiverService.QualityMenu menu=service.qualityMenu();
-        AlertDialog.Builder builder=new AlertDialog.Builder(this).setTitle("清晰度");
-        if(menu.choices().size()<2) {
-            String message=menu.loading()?"正在识别片源，开始播放后再查看清晰度。":
-                    menu.choices().isEmpty()?"当前内容没有可切换的视频画质。":
-                    "当前画质：" + service.ui().quality() + "\n\n当前片源仅提供一个电视可播放的画质档位，无法在这里切换。可尝试在平板 App 中调整清晰度后重新投屏。";
-            builder.setMessage(message).setPositiveButton("关闭",(d,w)->{});
-        } else {
-            String[] labels=new String[menu.choices().size()+1];labels[0]="自动 · 随网络调整";
-            int checked=0;
-            for(int i=0;i<menu.choices().size();i++) {
-                var choice=menu.choices().get(i);labels[i+1]=choice.label();
-                if(choice.key().equals(menu.selectedKey()))checked=i+1;
-            }
-            builder.setSingleChoiceItems(labels,checked,(d,which)->{
-                String key=which==0?"":menu.choices().get(which-1).key();
-                if(service==null || !service.selectQuality(menu.generation(),key))
-                    Toast.makeText(this,"片源已更新，请重新打开清晰度",Toast.LENGTH_SHORT).show();
-                d.dismiss();
-            }).setNegativeButton("取消",(d,w)->{});
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent); else startService(intent);
+            bound = bindService(intent, connection, BIND_AUTO_CREATE);
+        } catch (RuntimeException failure) {
+            waitingStatus.setText(R.string.cast_start_failed);
+            waitingError.setVisibility(View.VISIBLE);
+            waitingError.setText(failure.getClass().getSimpleName());
         }
-        AlertDialog dialog=builder.create();modalDialog=dialog;qualityDialogSession=menu.generation();
-        dialog.setOnDismissListener(d->{
-            if(modalDialog!=dialog)return;
-            modalDialog=null;qualityDialogSession=-1;
-            if(service!=null && video && service.ui().mediaGeneration()==menu.generation()) {
-                showHud();qualityButton.requestFocus();
-            } else render();
-        });
-        dialog.show();dialog.getWindow().setLayout(dp(620),-2);
     }
+
+    /** Single render path: the service state is the only source of truth. */
+    private void render() {
+        if (service == null) return;
+        if (service.isShuttingDown()) { finish(); return; }
+        ReceiverService.Ui ui = service.ui();
+
+        if (modalDialog != null && qualityDialogSession >= 0 && (!ui.video() || qualityDialogSession != ui.mediaGeneration())) modalDialog.dismiss();
+
+        boolean failed = ui.video() && !ui.error().isEmpty();
+
+        // ---- standby page ----
+        waiting.setVisibility(ui.video() ? View.GONE : View.VISIBLE);
+        waitingStatus.setText(ui.status());
+        boolean hasAddress = !ui.address().isEmpty();
+        address.setText(hasAddress ? ui.address() : "—");
+        received.setText(getString(R.string.cast_received_value, ui.received()));
+        String standbyProblem = ui.error();
+        if (standbyProblem.isEmpty() && !hasAddress) standbyProblem = getString(R.string.cast_network_missing);
+        waitingError.setVisibility(standbyProblem.isEmpty() ? View.GONE : View.VISIBLE);
+        if (!standbyProblem.isEmpty()) waitingError.setText(standbyProblem);
+
+        // ---- error page ----
+        errorPanel.setVisibility(failed ? View.VISIBLE : View.GONE);
+        if (failed) {
+            errorSubtitle.setText(ui.error());
+            if (!errorFocused) { errorFocused = true; retryButton.requestFocus(); }
+        } else {
+            errorFocused = false;
+        }
+
+        boolean changed = video != ui.video();
+        video = ui.video();
+        boolean newSession = changed || displayedSession != ui.mediaGeneration();
+        if (newSession) {
+            hudRequested = false;
+            handler.removeCallbacks(hideHud);
+            handler.removeCallbacks(hideConnecting);
+        }
+        displayedSession = ui.mediaGeneration();
+
+        if (ui.video() && !failed) {
+            hudTitle.setText(ui.title());
+            hudMeta.setText(ui.status() + "  ·  " + ui.qualityMode());
+            hudQuality.setText(ui.quality());
+            renderProgress(ui);
+
+            boolean paused = service.player().getPlaybackState() == Player.STATE_READY && !service.player().getPlayWhenReady();
+            hudPause.setImageResource(paused ? R.drawable.ic_play : R.drawable.ic_pause);
+            hudPause.setContentDescription(getString(paused ? R.string.cast_btn_resume : R.string.cast_btn_pause));
+            boolean attention = paused || service.player().getPlayerError() != null || service.player().getPlaybackState() == Player.STATE_ENDED;
+            if (attention || hudRequested) {
+                hud.setVisibility(View.VISIBLE);
+            } else {
+                hud.setVisibility(View.GONE);
+            }
+            if (newSession) {
+                connectingQuality.setText(ui.quality());
+                connecting.setVisibility(View.VISIBLE);
+                hud.setVisibility(View.GONE);
+                handler.postDelayed(hideConnecting, CONNECTING_HINT_MS);
+            }
+        } else {
+            hud.setVisibility(View.GONE);
+            connecting.setVisibility(View.GONE);
+            if (changed && !ui.video()) standbyButton.requestFocus();
+        }
+    }
+
+    /** A DLNA sink cannot seek, so the bar is a read-only indicator and only appears when duration is known. */
+    private void renderProgress(ReceiverService.Ui ui) {
+        long duration = service.player().getDuration();
+        long position = Math.max(0, service.player().getCurrentPosition());
+        boolean known = duration > 0 && duration != C.TIME_UNSET && position <= duration;
+        hudTrack.setVisibility(known ? View.VISIBLE : View.GONE);
+        if (known) {
+            hudPosition.setText(Dlna.time(position));
+            int percent = (int) Math.round(100d * position / duration);
+            setWeight(hudPlayed, percent);
+            setWeight(hudRest, Math.max(0, 100 - percent));
+        } else {
+            hudPosition.setText(ui.elapsed());
+        }
+    }
+
+    private void setWeight(View view, float weight) {
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) view.getLayoutParams();
+        params.weight = weight;
+        view.setLayoutParams(params);
+    }
+
+    private void showHud() {
+        if (!video) return;
+        hudRequested = true;
+        hud.setVisibility(View.VISIBLE);
+        connecting.setVisibility(View.GONE);
+        handler.removeCallbacks(hideConnecting);
+        handler.removeCallbacks(hideHud);
+        if (modalDialog == null) handler.postDelayed(hideHud, HUD_TIMEOUT_MS);
+    }
+
+    private void quality() {
+        if (service == null || modalDialog != null) return;
+        handler.removeCallbacks(hideHud);
+        ReceiverService.QualityMenu menu = service.qualityMenu();
+
+        View content = getLayoutInflater().inflate(R.layout.dialog_quality, null);
+        TextView subtitle = (TextView) content.findViewById(R.id.castQualitySubtitle);
+        TextView note = (TextView) content.findViewById(R.id.castQualityNote);
+        LinearLayout rows = (LinearLayout) content.findViewById(R.id.castQualityRows);
+        subtitle.setText(getString(R.string.cast_quality_subtitle, service.ui().quality()));
+
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setContentView(content);
+
+        int focusIndex = 0;
+        boolean autoChecked = menu.selectedKey().isEmpty();
+        addQualityRow(rows, getString(R.string.cast_quality_auto), getString(R.string.cast_quality_auto_hint, service.ui().quality()), autoChecked, "", menu, dialog);
+        for (int i = 0; i < menu.choices().size(); i++) {
+            QualityCatalog.Choice choice = menu.choices().get(i);
+            boolean checked = choice.key().equals(menu.selectedKey());
+            if (checked) focusIndex = i + 1;
+            addQualityRow(rows, choice.label(), "", checked, choice.key(), menu, dialog);
+        }
+
+        if (menu.loading()) note.setText(R.string.cast_quality_note_loading);
+        else if (menu.choices().isEmpty()) note.setText(R.string.cast_quality_note_none);
+        else if (menu.choices().size() < 2) note.setText(R.string.cast_quality_note_single);
+        else note.setText(R.string.cast_quality_note_multi);
+
+        modalDialog = dialog;
+        qualityDialogSession = menu.generation();
+        dialog.setOnDismissListener(d -> {
+            if (modalDialog != dialog) return;
+            modalDialog = null;
+            qualityDialogSession = -1;
+            if (service != null && video && service.ui().mediaGeneration() == menu.generation()) {
+                showHud();
+                hudQualityButton.requestFocus();
+            } else {
+                render();
+            }
+        });
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            window.setDimAmount(0.6f);
+            window.setLayout(dp(372), WindowManager.LayoutParams.WRAP_CONTENT);
+        }
+        if (rows.getChildCount() > focusIndex) rows.getChildAt(focusIndex).requestFocus();
+        else if (rows.getChildCount() > 0) rows.getChildAt(0).requestFocus();
+    }
+
+    private void addQualityRow(LinearLayout container, String label, String hint, boolean checked, String key,
+                               ReceiverService.QualityMenu menu, Dialog dialog) {
+        View row = getLayoutInflater().inflate(R.layout.item_quality_row, container, false);
+        TextView labelView = (TextView) row.findViewById(R.id.castRowLabel);
+        TextView hintView = (TextView) row.findViewById(R.id.castRowHint);
+        ImageView check = (ImageView) row.findViewById(R.id.castRowCheck);
+        labelView.setText(label);
+        if (hint == null || hint.isEmpty()) hintView.setVisibility(View.GONE); else hintView.setText(hint);
+        check.setVisibility(checked ? View.VISIBLE : View.GONE);
+        bindFocus(row);
+        row.setOnClickListener(v -> {
+            boolean applied = service != null && service.selectQuality(menu.generation(), key);
+            if (!applied) Toast.makeText(this, R.string.cast_quality_stale, Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        });
+        container.addView(row);
+    }
+
     private void details() {
         handler.removeCallbacks(hideHud);
-        String message="等待接收服务启动。";
-        if(service!=null) {
-            ReceiverService.Ui u=service.ui();
-            message="小米电视非官方投屏 0.1.8-test\n电视：" + Build.MANUFACTURER + " " + Build.MODEL + "\nAndroid " + Build.VERSION.RELEASE + " / API " + Build.VERSION.SDK_INT
-                    + "\n接收器：" + (u.endpoint().isEmpty()?"尚未就绪":u.endpoint())
-                    + "\n当前画质：" + u.quality() + " · " + u.qualityMode()
-                    + "\n收到地址：" + u.received() + " 次\n本次连接：" + u.elapsed()
-                    + "\n\n排查顺序：\n1. 没收到搜索：检查同一网络、访客网络隔离。\n2. 能被搜索但没收到地址：可能存在发送端兼容限制。\n3. 已收到地址但不能播放：看下面错误代码。\n\n" + service.logs()
-                    + "\n\n记录只保存在本次运行的内存中；不显示完整视频地址或登录信息。\n本地网页可打开只表示网络可达，实际投屏仍需测试。";
+        View content = getLayoutInflater().inflate(R.layout.dialog_details, null);
+        LinearLayout facts = (LinearLayout) content.findViewById(R.id.castDetailFacts);
+        LinearLayout checks = (LinearLayout) content.findViewById(R.id.castDetailChecks);
+        TextView logView = (TextView) content.findViewById(R.id.castDetailLog);
+        facts.removeAllViews();
+        checks.removeAllViews();
+
+        if (service == null) {
+            addFact(facts, getString(R.string.cast_status_starting), getString(R.string.cast_details_pending));
+        } else {
+            ReceiverService.Ui ui = service.ui();
+            addFact(facts, getString(R.string.cast_details_version), versionName());
+            addFact(facts, getString(R.string.cast_details_tv), Build.MANUFACTURER + " " + Build.MODEL);
+            addFact(facts, getString(R.string.cast_details_system), "Android " + Build.VERSION.RELEASE + " · API " + Build.VERSION.SDK_INT);
+            addFact(facts, getString(R.string.cast_details_receiver), ui.endpoint().isEmpty() ? "尚未就绪" : ui.endpoint());
+            addFact(facts, getString(R.string.cast_details_quality), ui.quality() + " · " + ui.qualityMode());
+            addFact(facts, getString(R.string.cast_details_received), getString(R.string.cast_received_value, ui.received()));
+            addFact(facts, getString(R.string.cast_details_session), ui.elapsed());
+            String logs = service.logs();
+            if (logs.isEmpty()) logView.setVisibility(View.GONE); else logView.setText(logs);
         }
-        ScrollView scroll=new ScrollView(this); TextView content=text(message,14,WHITE); content.setPadding(dp(24),dp(12),dp(24),dp(20)); scroll.addView(content);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("连接详情").setView(scroll).setPositiveButton("关闭",(d,w)->showHud()).create();
-        modalDialog=dialog;
-        dialog.setOnDismissListener(d->{if(modalDialog==dialog)modalDialog=null;showHud();}); dialog.show();
-        dialog.getWindow().setLayout(dp(660),dp(390));
+        addCheck(checks, "01", getString(R.string.cast_details_check_1));
+        addCheck(checks, "02", getString(R.string.cast_details_check_2));
+        addCheck(checks, "03", getString(R.string.cast_details_check_3));
+
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setContentView(content);
+        dialog.setOnDismissListener(d -> { if (modalDialog == dialog) modalDialog = null; showHud(); });
+        modalDialog = dialog;
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            window.setDimAmount(0.6f);
+            window.setLayout(dp(780), WindowManager.LayoutParams.WRAP_CONTENT);
+        }
     }
+
+    private void addFact(LinearLayout parent, String label, String value) {
+        View row = getLayoutInflater().inflate(R.layout.item_detail_row, parent, false);
+        ((TextView) row.findViewById(R.id.castFactLabel)).setText(label);
+        ((TextView) row.findViewById(R.id.castFactValue)).setText(value);
+        parent.addView(row);
+    }
+
+    private void addCheck(LinearLayout parent, String index, String text) {
+        View row = getLayoutInflater().inflate(R.layout.item_check_row, parent, false);
+        ((TextView) row.findViewById(R.id.castCheckIndex)).setText(index);
+        ((TextView) row.findViewById(R.id.castCheckText)).setText(text);
+        parent.addView(row);
+    }
+
+    private void standby() {
+        final boolean allowed = Build.VERSION.SDK_INT < 29 || Settings.canDrawOverlays(this);
+        View content = getLayoutInflater().inflate(R.layout.dialog_standby, null);
+        TextView body = (TextView) content.findViewById(R.id.castStandbyBody);
+        View pathCard = content.findViewById(R.id.castStandbyPathCard);
+        Button wait = (Button) content.findViewById(R.id.castStandbyWait);
+        Button grant = (Button) content.findViewById(R.id.castStandbyGrant);
+
+        body.setText(allowed ? R.string.cast_standby_body_allowed : R.string.cast_standby_body_denied);
+        pathCard.setVisibility(allowed ? View.GONE : View.VISIBLE);
+
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dialog.setContentView(content);
+
+        Button cancel = (Button) content.findViewById(R.id.castStandbyCancel);
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        if (allowed) {
+            wait.setVisibility(View.GONE);
+            grant.setText(R.string.cast_btn_enter_background);
+            grant.setOnClickListener(v -> { dialog.dismiss(); moveTaskToBack(true); });
+        } else {
+            wait.setOnClickListener(v -> { dialog.dismiss(); moveTaskToBack(true); });
+            grant.setOnClickListener(v -> { dialog.dismiss(); openOverlaySettings(); });
+        }
+        bindFocus(wait, grant, cancel);
+        dialog.setOnDismissListener(d -> { if (modalDialog == dialog) modalDialog = null; });
+        modalDialog = dialog;
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            window.setDimAmount(0.6f);
+            window.setLayout(dp(520), WindowManager.LayoutParams.WRAP_CONTENT);
+        }
+        grant.requestFocus();
+    }
+
     private void exitReceiver() {
-        if(service!=null)service.shutdown();
-        else stopService(new Intent(this,ReceiverService.class));
+        if (service != null) service.shutdown();
+        else stopService(new Intent(this, ReceiverService.class));
         finish();
     }
-    private void confirmExit() { new AlertDialog.Builder(this).setTitle("退出接收？").setMessage("将停止后台待机，平板无法再发现本接收器。再次打开即可恢复。").setPositiveButton("退出",(d,w)->exitReceiver()).setNegativeButton("继续接收",null).show(); }
-    private void standby() {
-        boolean allowed=Build.VERSION.SDK_INT<29 || Settings.canDrawOverlays(this);
-        AlertDialog.Builder dialog=new AlertDialog.Builder(this).setTitle("后台待机")
-                .setMessage(allowed?"回到桌面后仍可接收投屏，新投屏会尝试自动打开播放界面。电视关机、重启或系统强行停止后，需要重新打开本应用。":
-                    "回到桌面后仍可被平板发现。允许“显示在其他应用上层”后，新投屏可自动打开播放界面；不允许时，收到视频后需手动打开本应用播放。此权限不用于显示悬浮窗。")
-                .setNegativeButton("取消",null);
-        if(allowed)dialog.setPositiveButton("进入后台",(d,w)->moveTaskToBack(true));
-        else dialog.setPositiveButton("去授权",(d,w)->openOverlaySettings()).setNeutralButton("直接后台等待",(d,w)->moveTaskToBack(true));
-        dialog.show();
+
+    private void confirmExit() {
+        new AlertDialog.Builder(this, R.style.CastDialog)
+                .setTitle(R.string.cast_exit_title)
+                .setMessage(R.string.cast_exit_body)
+                .setPositiveButton(R.string.cast_btn_exit_confirm, (dialog, which) -> exitReceiver())
+                .setNegativeButton(R.string.cast_btn_keep, null)
+                .show();
     }
+
     /** Xiaomi PatchWall often lacks the AOSP overlay screen; try the MIUI permission editor, then app details. */
     private void openOverlaySettings() {
-        Uri pkg=Uri.parse("package:"+getPackageName());
-        Intent[] candidates={
-            new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,pkg),
-            new Intent("miui.intent.action.APP_PERM_EDITOR").putExtra("extra_pkgname",getPackageName()),
-            new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,pkg),
-            new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)};
-        for(Intent intent:candidates) {
-            try { startActivity(intent); return; } catch(ActivityNotFoundException|SecurityException unavailable) { }
+        Uri pkg = Uri.parse("package:" + getPackageName());
+        Intent[] candidates = {
+                new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkg),
+                new Intent("miui.intent.action.APP_PERM_EDITOR").putExtra("extra_pkgname", getPackageName()),
+                new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg),
+                new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)};
+        for (Intent intent : candidates) {
+            try { startActivity(intent); return; } catch (RuntimeException unavailable) { }
         }
-        Toast.makeText(this,"本机未提供此授权入口，可在系统应用设置中查找；也可手动打开本应用播放。",Toast.LENGTH_LONG).show();
+        Toast.makeText(this, R.string.cast_overlay_missing, Toast.LENGTH_LONG).show();
     }
-    private String bootLabel() { return BootReceiver.enabled(this)?"开机待机：开":"开机待机：关"; }
+
+    private String bootLabel() {
+        return getString(BootReceiver.enabled(this) ? R.string.cast_btn_boot_on : R.string.cast_btn_boot_off);
+    }
+
     private void toggleBootStandby(Button button) {
-        boolean next=!BootReceiver.enabled(this); BootReceiver.setEnabled(this,next); button.setText(bootLabel());
-        Toast.makeText(this,next?"已开启：电视冷启动后自动后台待机。小米电视若在“应用自启动”中禁止了本应用，需要先允许。":"已关闭开机待机",Toast.LENGTH_LONG).show();
+        boolean next = !BootReceiver.enabled(this);
+        BootReceiver.setEnabled(this, next);
+        button.setText(bootLabel());
+        Toast.makeText(this, next ? R.string.cast_boot_on_toast : R.string.cast_boot_off_toast, Toast.LENGTH_LONG).show();
     }
-    @Override public boolean onKeyDown(int code,KeyEvent event) {
+
+    @Override public boolean onKeyDown(int code, KeyEvent event) {
         // Xiaomi remotes have a Menu key but no dedicated quality button.
-        if(video && code==KeyEvent.KEYCODE_MENU) { showHud(); quality(); return true; }
-        if(code==KeyEvent.KEYCODE_BACK){if(service!=null && service.ui().video())service.stopPlayback();else standby();return true;}
-        if(video && (code==KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || code==KeyEvent.KEYCODE_MEDIA_PAUSE || code==KeyEvent.KEYCODE_MEDIA_PLAY)) {
-            if(service!=null)service.togglePause();showHud();return true;
+        if (code == KeyEvent.KEYCODE_MENU) {
+            if (video) { showHud(); quality(); } else { details(); }
+            return true;
         }
-        if(video && (code==KeyEvent.KEYCODE_DPAD_CENTER || code==KeyEvent.KEYCODE_ENTER || code==KeyEvent.KEYCODE_DPAD_UP || code==KeyEvent.KEYCODE_DPAD_DOWN || code==KeyEvent.KEYCODE_DPAD_LEFT || code==KeyEvent.KEYCODE_DPAD_RIGHT)) {
-            boolean hidden=hud.getVisibility()!=View.VISIBLE;showHud();if(hidden){pause.requestFocus();return true;}
+        if (code == KeyEvent.KEYCODE_BACK) {
+            if (service != null && service.ui().video()) service.stopPlayback(); else standby();
+            return true;
         }
-        return super.onKeyDown(code,event);
+        if (video && (code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || code == KeyEvent.KEYCODE_MEDIA_PAUSE || code == KeyEvent.KEYCODE_MEDIA_PLAY)) {
+            if (service != null) service.togglePause();
+            showHud();
+            return true;
+        }
+        if (video && (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_DPAD_UP
+                || code == KeyEvent.KEYCODE_DPAD_DOWN || code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            boolean hidden = hud.getVisibility() != View.VISIBLE;
+            showHud();
+            if (hidden) { hudPause.requestFocus(); return true; }
+        }
+        return super.onKeyDown(code, event);
     }
+
     @Override protected void onStop() {
-        if(modalDialog!=null)modalDialog.dismiss();
+        if (modalDialog != null) modalDialog.dismiss();
         handler.removeCallbacksAndMessages(null);
-        playerView.setPlayer(null); if(service!=null)service.observe(null);
-        if(bound){unbindService(connection);bound=false;}
-        service=null;
+        playerView.setPlayer(null);
+        if (service != null) service.observe(null);
+        if (bound) { unbindService(connection); bound = false; }
+        service = null;
         super.onStop();
     }
-    private LinearLayout column(){LinearLayout view=new LinearLayout(this);view.setOrientation(LinearLayout.VERTICAL);return view;}
-    private TextView text(String value,int size,int color){TextView v=new TextView(this);v.setText(value);v.setTextSize(size);v.setTextColor(color);v.setLineSpacing(dp(2),1);return v;}
-    private Button button(String label,View.OnClickListener click){Button b=new Button(this);b.setText(label);b.setTextSize(15);b.setTextColor(WHITE);b.setAllCaps(false);b.setPadding(dp(20),0,dp(20),0);b.setMinHeight(dp(48));b.setMinimumHeight(dp(48));b.setOnClickListener(click);b.setOnFocusChangeListener((v,focus)->{b.setTextColor(focus?INK:WHITE);b.setBackground(background(focus?MINT:0xff2b414b,8));});b.setBackground(background(0xff2b414b,8));return b;}
-    private GradientDrawable background(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
-    private void add(LinearLayout parent,View child,int top){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=dp(top);parent.addView(child,p);}
-    private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
+
+    /** tvOS focus: a short scale on top of the white-block selector, never a translation. */
+    private void bindFocus(View... views) {
+        for (View view : views) {
+            view.setOnFocusChangeListener((v, hasFocus) -> v.animate()
+                    .scaleX(hasFocus ? 1.04f : 1f)
+                    .scaleY(hasFocus ? 1.04f : 1f)
+                    .setDuration(hasFocus ? 140L : 110L)
+                    .start());
+        }
+    }
+
+    private void contentClick(int id, View.OnClickListener listener) {
+        View view = findViewById(id);
+        view.setOnClickListener(listener);
+    }
+
+    private String versionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (PackageManager.NameNotFoundException missing) {
+            return "";
+        }
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
 }

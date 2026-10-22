@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Design canvas is 1920x1080. PatchWall renders at 1080p on a x2 density,
+  so px / 2 = dp and px / 2 = sp. Everything below is already converted.
+-->
+<resources>
+    <dimen name="cast_screen_h">48dp</dimen>
+    <dimen name="cast_screen_v">36dp</dimen>
+
+    <!-- Type scale: 76 / 46 / 36 / 28 / 22 px on canvas -->
+    <dimen name="cast_text_display">38sp</dimen>
+    <dimen name="cast_text_title">23sp</dimen>
+    <dimen name="cast_text_dialog_title">18sp</dimen>
+    <dimen name="cast_text_body">14sp</dimen>
+    <dimen name="cast_text_button">14sp</dimen>
+    <dimen name="cast_text_label">11sp</dimen>
+    <dimen name="cast_text_note">11sp</dimen>
+
+    <!-- Shape hierarchy: panel 32 / button 24 / row 18 px -->
+    <dimen name="cast_radius_panel">16dp</dimen>
+    <dimen name="cast_radius_button">12dp</dimen>
+    <dimen name="cast_radius_row">9dp</dimen>
+    <dimen name="cast_radius_card">12dp</dimen>
+
+    <dimen name="cast_button_height">42dp</dimen>
+    <dimen name="cast_button_primary_height">46dp</dimen>
+    <dimen name="cast_button_padding">20dp</dimen>
+    <dimen name="cast_circle_control">34dp</dimen>
+
+    <dimen name="cast_panel_padding">28dp</dimen>
+    <dimen name="cast_hud_panel_padding_h">16dp</dimen>
+    <dimen name="cast_hud_panel_padding_v">14dp</dimen>
+
+    <dimen name="cast_hairline">1dp</dimen>
+    <dimen name="cast_badge">48dp</dimen>
+    <dimen name="cast_gap_xs">4dp</dimen>
+    <dimen name="cast_gap_s">8dp</dimen>
+    <dimen name="cast_gap_m">13dp</dimen>
+    <dimen name="cast_gap_l">18dp</dimen>
+</resources>

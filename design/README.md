@@ -226,6 +226,22 @@ stateDiagram-v2
 
 建设方式：把布局从代码拼装改为 XML / Compose 声明，状态用单一 `UiState`（`Standby` / `Connecting` / `Playing` / `Error` / `Diagnostics`）驱动——现有实现的问题是状态隐含在视图树里，改一处要动多处。
 
+### 实现状态（0.1.9-test）
+
+上述「建设方式」已按 V2 落地：布局全部改为 `res/layout/*.xml`，颜色/尺寸/样式集中到 `colors.xml` / `dimens.xml` / `styles.xml`，焦点与按下态由 `drawable/bg_*.xml` 选择器表达，`MainActivity` 只保留一条 `render()` 渲染路径。落地时的五处偏离，都是因为设计稿画了代码拿不到的东西：
+
+| 设计稿 | 实际实现 | 原因 |
+| --- | --- | --- |
+| 「已连接「iPhone 15 Pro」· 2160p」 | 「已连接 · 正在播放」+ 画质 | `ReceiverService` 没有把发送端设备名暴露给界面，编一个设备名等于撒谎 |
+| 播放器进度条 00:12:04 / 42:18 | 时长已知才显示进度；直播等无时长场景只显示本次连接时长 | DLNA 接收端不能 seek；直播没有总时长，硬画一条进度条是假数据 |
+| 待机页三个按钮 | 四个：多一个「开机待机：关」 | 该开关是既有功能，A1 未画但不能删；放在同一行尾部 |
+| Inter + Noto Sans SC | 系统 `sans-serif` / `sans-serif-medium` | 不为界面打包字体，避免 APK 增重；中文字重由系统回退决定，观感需实机确认 |
+| 焦点放大 | `View.animate().scaleX/Y(1.04)` | 属性动画实现 1.04 缩放，符合「只缩放、不位移」的规则 |
+
+另：`设计令牌` 里的 `#4FE3BE` 只在 V1 使用，V2 落地时已完全退场；若要换成「V2 构图 + 品牌绿焦点」，改 `colors.xml` 的 `cast_focus_fill` / `cast_focus_ink` 即可，布局不用动。
+
+> ⚠️ 代码改动**未经编译验证**（本机无 Android SDK），只做了资源引用与语法级校验，需在实机构建后确认。
+
 ---
 
 ## 八、未完成 / 待定

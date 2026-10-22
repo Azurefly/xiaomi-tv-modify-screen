@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Standby / waiting -->
+    <string name="cast_brand_eyebrow">LIVING ROOM · 投屏接收</string>
+    <string name="cast_waiting_title">小米电视投屏</string>
+    <string name="cast_waiting_subtitle">在手机或平板上点「投屏」，选择这台电视</string>
+    <string name="cast_waiting_meta">DLNA 接收 · 电视端无需任何操作</string>
+    <string name="cast_label_address">电视地址</string>
+    <string name="cast_label_received">本次已接收</string>
+    <string name="cast_received_value">%1$d 次</string>
+    <string name="cast_waiting_hint">按 OK 确认 ·「后台待机」让电视回到桌面后继续接收</string>
+    <string name="cast_status_starting">正在启动接收服务</string>
+
+    <!-- Buttons -->
+    <string name="cast_btn_standby">后台待机</string>
+    <string name="cast_btn_details">连接详情</string>
+    <string name="cast_btn_exit">退出接收</string>
+    <string name="cast_btn_boot_off">开机待机：关</string>
+    <string name="cast_btn_boot_on">开机待机：开</string>
+    <string name="cast_btn_pause">暂停</string>
+    <string name="cast_btn_resume">继续</string>
+    <string name="cast_btn_quality">清晰度</string>
+    <string name="cast_btn_end">结束投屏</string>
+    <string name="cast_btn_retry">重试</string>
+    <string name="cast_btn_view_details">查看详情</string>
+    <string name="cast_btn_cancel">取消</string>
+    <string name="cast_btn_grant">去授权</string>
+    <string name="cast_btn_wait_background">直接后台等待</string>
+    <string name="cast_btn_enter_background">进入后台</string>
+    <string name="cast_btn_exit_confirm">退出</string>
+    <string name="cast_btn_keep">继续接收</string>
+
+    <!-- Playing -->
+    <string name="cast_hud_hint">方向键唤出操作栏 · 2 秒无操作自动收起 · 菜单键切换画质 · 返回键结束本次播放</string>
+    <string name="cast_connecting_pill">已连接 · 正在播放</string>
+    <string name="cast_session_prefix">本次连接 %1$s</string>
+
+    <!-- Error -->
+    <string name="cast_error_title">无法播放此视频</string>
+    <string name="cast_error_body">可以在手机端把清晰度切到 1080p 后重新投屏，或者直接重试当前地址。</string>
+    <string name="cast_error_caption">地址有效期约 5 分钟 · 过期后需在手机端重新发起投屏</string>
+
+    <!-- Quality dialog -->
+    <string name="cast_quality_title">清晰度</string>
+    <string name="cast_quality_subtitle">当前画质 %1$s</string>
+    <string name="cast_quality_auto">自动 · 随网络调整</string>
+    <string name="cast_quality_auto_hint">当前 %1$s</string>
+    <string name="cast_quality_note_single">当前片源仅提供一个电视可播放的档位，无法在这里切换。可尝试在手机端调整后重新投屏。</string>
+    <string name="cast_quality_note_loading">正在识别片源，开始播放后再查看清晰度。</string>
+    <string name="cast_quality_note_none">当前内容没有可切换的视频画质。</string>
+    <string name="cast_quality_note_multi">可切换档位来自片源本身，更多档位请在手机端调整后重新投屏。</string>
+    <string name="cast_quality_stale">片源已更新，请重新打开清晰度</string>
+
+    <!-- Diagnostics dialog -->
+    <string name="cast_details_title">连接详情</string>
+    <string name="cast_details_close_hint">返回键关闭</string>
+    <string name="cast_details_version">版本</string>
+    <string name="cast_details_tv">电视</string>
+    <string name="cast_details_system">系统</string>
+    <string name="cast_details_receiver">接收器</string>
+    <string name="cast_details_quality">当前画质</string>
+    <string name="cast_details_received">收到地址</string>
+    <string name="cast_details_session">本次连接</string>
+    <string name="cast_details_check_title">按这个顺序排查</string>
+    <string name="cast_details_check_1">搜不到本机：确认同一网络；关闭电视自带投屏或当贝等接收端后重新搜索。</string>
+    <string name="cast_details_check_2">能搜到但没有地址：多为发送端兼容限制，换一个视频 App 再试。</string>
+    <string name="cast_details_check_3">收到地址但播不出来：看下方日志，多为解码器回退失败或地址过期。</string>
+    <string name="cast_details_note">记录只保存在本次运行的内存中 · 不显示完整视频地址与登录信息</string>
+    <string name="cast_details_pending">等待接收服务启动。</string>
+
+    <!-- Standby dialog -->
+    <string name="cast_standby_title">后台待机</string>
+    <string name="cast_standby_body_allowed">回到桌面后仍能接收投屏，新投屏会尝试自动打开播放界面。</string>
+    <string name="cast_standby_body_denied">回到桌面后仍能被平板发现。允许「显示在其他应用上层」后，新投屏可自动打开播放界面；不允许时，收到视频后需要手动打开本应用播放。</string>
+    <string name="cast_standby_path_label">授权路径 · 小米电视 PatchWall</string>
+    <string name="cast_standby_path">系统设置 → 应用管理 → 小米电视非官方投屏 → 显示在其他应用上层</string>
+    <string name="cast_standby_path_note">找不到标准授权页时，会依次尝试 MIUI 权限页、应用详情页。\n此权限不用于显示悬浮窗。</string>
+    <string name="cast_standby_note">电视关机、重启或系统强行停止后，需要重新打开本应用。</string>
+
+    <!-- Exit dialog -->
+    <string name="cast_exit_title">退出接收？</string>
+    <string name="cast_exit_body">将停止后台待机，平板无法再发现本接收器。再次打开即可恢复。</string>
+
+    <!-- Transient messages -->
+    <string name="cast_service_stopped">接收服务已停止，请退出后重新打开</string>
+    <string name="cast_start_failed">启动失败，请退出重开</string>
+    <string name="cast_network_missing">请连接家庭 Wi-Fi，或将电视接入同一路由器的网线。</string>
+    <string name="cast_boot_on_toast">已开启：电视冷启动后自动后台待机。小米电视若在“应用自启动”中禁止了本应用，需要先允许。</string>
+    <string name="cast_boot_off_toast">已关闭开机待机</string>
+    <string name="cast_overlay_missing">本机未提供此授权入口，可在系统应用设置中查找；也可手动打开本应用播放。</string>
+</resources>

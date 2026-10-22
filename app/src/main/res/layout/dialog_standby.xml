@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_panel"
+    android:orientation="vertical"
+    android:padding="@dimen/cast_panel_padding">
+
+    <TextView
+        style="@style/CastText.DialogTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/cast_standby_title" />
+
+    <TextView
+        android:id="@+id/castStandbyBody"
+        style="@style/CastText.Body"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp" />
+
+    <LinearLayout
+        android:id="@+id/castStandbyPathCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:background="@drawable/bg_log"
+        android:orientation="vertical"
+        android:padding="@dimen/cast_gap_m">
+
+        <TextView
+            style="@style/CastText.Label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/cast_standby_path_label" />
+
+        <TextView
+            style="@style/CastText.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/cast_standby_path"
+            android:textColor="@color/cast_text_primary"
+            android:textSize="13sp" />
+
+        <TextView
+            style="@style/CastText.Note"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/cast_standby_path_note" />
+    </LinearLayout>
+
+    <TextView
+        style="@style/CastText.Note"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="@string/cast_standby_note" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:gravity="end|center_vertical"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/castStandbyCancel"
+            style="@style/CastButton"
+            android:text="@string/cast_btn_cancel" />
+
+        <Button
+            android:id="@+id/castStandbyWait"
+            style="@style/CastButton"
+            android:layout_marginStart="9dp"
+            android:text="@string/cast_btn_wait_background" />
+
+        <Button
+            android:id="@+id/castStandbyGrant"
+            style="@style/CastButton.Primary"
+            android:layout_marginStart="9dp"
+            android:text="@string/cast_btn_grant" />
+    </LinearLayout>
+</LinearLayout>
