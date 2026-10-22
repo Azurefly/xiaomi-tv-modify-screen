@@ -63,6 +63,10 @@ bash build-local.sh
 
 安装用的是 `app/build/outputs/apk/release/app-release.apk`（不可调试，经 R8 压缩优化）；`debug` 目录下的调试包仅供开发。构建脚本会自动生成本地测试签名，仓库不包含任何签名私钥。
 
+## 界面设计
+
+电视端界面与交互稿见 [design/](design/)，含两套视觉方案（品牌绿 / Apple TV 语言）、15 张分屏图、遥控键位映射与设计令牌，可直接对照实现。[design/README.md](design/README.md)
+
 ## 反馈
 
 欢迎提交小米电视型号、系统版本和投屏 App 的兼容情况，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
