@@ -63,6 +63,14 @@ bash build-local.sh
 
 安装用的是 `app/build/outputs/apk/release/app-release.apk`（不可调试，经 R8 压缩优化）；`debug` 目录下的调试包仅供开发。构建脚本会自动生成本地测试签名，仓库不包含任何签名私钥。
 
+没有 Android SDK 时，可以先跑一遍精简校验：
+
+```sh
+bash tools/verify-offline.sh
+```
+
+它不装 SDK，只下载约 55 MB 的 `android.jar`、`aapt2`、依赖 jar 和 `d8`，用来判定「改动能不能编过」——资源编译与链接、Java 类型检查、minSdk 23 字节码打包。lint、R8 压缩和真机行为不在覆盖范围内。
+
 ## 界面设计
 
 电视端界面与交互稿见 [design/](design/)，含两套视觉方案（品牌绿 / Apple TV 语言）、15 张分屏图、遥控键位映射与设计令牌，可直接对照实现。[design/README.md](design/README.md)
